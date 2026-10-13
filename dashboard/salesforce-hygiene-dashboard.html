@@ -49,6 +49,10 @@ button:focus-visible,summary:focus-visible{outline:3px solid var(--dream);outlin
 .ebtn{background:var(--dream);color:#0b465e}
 .ebox{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:10px}
 .ebox[hidden]{display:none}
+.disc{background:var(--bg);border:1px solid var(--line);border-left:4px solid var(--heat);border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.5}
+.disc ul{margin:6px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.num-in{width:90px;font:400 12px var(--f-body);padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+.qbtn:disabled{opacity:.45;cursor:not-allowed}
 .ebox select{font:400 12px var(--f-body);padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
 .erow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .eflag{font:600 10px var(--f-mono);padding:2px 7px;border-radius:999px;color:#0b465e}
@@ -310,51 +314,78 @@ function parseAddr(v){
   return out;
 }
 const csvq=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+const LAST={};
 function enrichUI(d,box){
   box.hidden=false;
-  const w=d.q.w;
-  const S={rows:[],res:null};
-  box.innerHTML=`<div class="erow"><b style="font-size:13px">Enrich with Clay (Company Address)</b></div>
-  <p class="qmsg" style="font-size:12px">Loads accounts from this check that have a website and asks Clay for the HQ address. Nothing is written to Salesforce by this page: you review the proposals, then copy a CSV and load it with Data Loader. One Clay credit per account.</p>
-  <div class="tbl"><table><thead><tr><th>Field</th><th>In the CSV</th><th>Rule</th></tr></thead><tbody>
-  <tr><td>Id</td><td>always</td><td>Match key</td></tr>
-  <tr><td>Country__c</td><td>on by default</td><td>Country name from Clay's address (e.g. Canada)</td></tr>
-  <tr><td>State_Region__c</td><td>on by default</td><td>US and Canada: full state or province name, same format as today. Other countries: the region text.</td></tr>
-  <tr><td>City__c</td><td>on by default</td><td>City from Clay's address (the field in use, BillingCity is empty on sampled accounts)</td></tr>
-  <tr><td>BillingPostalCode</td><td>on by default</td><td>Zip or postal code from Clay's address. US zips keep leading zeros and the ZIP+4 format if present.</td></tr>
-  <tr><td>US_State__c</td><td>off by default</td><td>Derived from State_Region__c (72,858 of 73,615 US and Canada accounts already match). Turn on only if the automation does not fill it.</td></tr>
-  <tr><td>BillingCity, BillingState, BillingCountry, New_US_Territory__c, Region__c, Owner</td><td>never</td><td>Not touched. Re-run territory assignment after loading.</td></tr>
-  </tbody></table></div>
-  <div class="erow"><label for="n-${d.id}" class="qmsg">Accounts</label><select id="n-${d.id}"><option>10</option><option selected>25</option><option>50</option></select><button type="button" class="qbtn" data-act="load">Load accounts</button></div>
-  <div data-out></div>`;
-  const out=box.querySelector('[data-out]');
+  const ID=d.id,w=d.q.w;
+  const EXC="Website != null AND Website NOT IN ('example.org','onmicrosoft.com','wikidot.com')";
+  const S={rows:[],total:null};
+  const FIELDS=[['Country__c','fc',true,r=>r.country,r=>r.prop.country],['State_Region__c','fr',true,r=>r.region,r=>r.prop.state||r.prop.region],['City__c','fy',true,r=>r.city,r=>r.prop.city],['BillingPostalCode','fz',true,r=>r.zip,r=>r.prop.zip],['US_State__c','fs',false,r=>r.state,r=>r.prop.state]];
+  box.innerHTML=`<b style="font-size:13px">Enrich with Clay (Company Address)</b>
+  <div class="disc"><b>Read before you run</b>
+   <ul>
+    <li><b>Cost.</b> One Clay run per account with the Clay function "Company Address". Clay does not return the credit price through the API, so the credit figure below is an estimate from the rate you enter. Check your Clay plan, and start with 10 accounts.</li>
+    <li><b>Salesforce.</b> This page writes nothing. You copy a CSV and load it with Data Loader. Only the fields ticked below are in that CSV, and Id is the match key.</li>
+    <li><b>Not touched:</b> BillingCity, BillingState, BillingCountry, New_US_Territory__c, Region__c, Owner.</li>
+   </ul></div>
+  <div class="erow"><label class="qmsg" for="v-${ID}">Accounts to enrich (1 to 500 per run)</label><input type="number" id="v-${ID}" min="1" max="500" value="25" class="num-in"><label class="qmsg" for="cr-${ID}">Credits per account (your Clay rate)</label><input type="number" id="cr-${ID}" min="0" step="0.1" value="1" class="num-in"></div>
+  <div class="erow"><span class="qmsg">Fields to update:</span><label class="qmsg"><input type="checkbox" checked disabled> Id</label>${FIELDS.map(f=>`<label class="qmsg"><input type="checkbox" id="${f[1]}-${ID}" ${f[2]?'checked':''}> ${f[0]}</label>`).join('')}</div>
+  <div class="erow"><label class="qmsg"><input type="checkbox" id="fo-${ID}" checked> Only fill empty fields (keep existing values)</label><label class="qmsg"><input type="checkbox" id="ct-${ID}"> Continue after the previous batch${LAST[ID]?'':' (none yet)'}</label></div>
+  <div class="erow"><button type="button" class="qbtn" data-act="load">Load accounts</button></div>
+  <div data-sum></div><div data-out></div>`;
+  const $=id=>document.getElementById(`${id}-${ID}`);
+  const out=box.querySelector('[data-out]'),sum=box.querySelector('[data-sum]');
   const msg=t=>{out.innerHTML=`<p class="qmsg">${t}</p>`};
+  const picked=()=>FIELDS.filter(f=>$(f[1]).checked);
+  const rate=()=>Math.max(0,parseFloat($('cr').value)||0);
+  function renderSum(){
+    if(!S.rows.length){sum.innerHTML='';return}
+    const n=S.rows.length,fo=$('fo').checked,P=picked();
+    const rowsT=P.map(f=>{const empty=S.rows.filter(r=>!f[3](r)).length;return `<tr><td>${f[0]}</td><td>${empty}</td><td>${fo?`up to ${empty}`:`up to ${n}`}</td></tr>`}).join('');
+    sum.innerHTML=`<div class="disc"><b>${n} accounts loaded</b>${S.total!==null?` (of ${S.total.toLocaleString('en-US')} in this check with a usable website)`:''}.
+      <br><b>Clay cost:</b> ${n} runs, about <b>${(n*rate()).toLocaleString('en-US',{maximumFractionDigits:1})} credits</b> at ${rate()} per account (estimate).
+      <br><b>Fields the CSV can update on these ${n} accounts</b> (only where Clay finds a value${fo?', and only if the field is empty today':''}):</div>
+      <div class="tbl"><table><thead><tr><th>Field</th><th>Empty today</th><th>Rows that can change</th></tr></thead><tbody>${rowsT||'<tr><td colspan="3">No field ticked</td></tr>'}</tbody></table></div>
+      <div class="erow"><label class="qmsg"><input type="checkbox" id="ack-${ID}"> I understand this uses Clay credits and that Salesforce is only updated when I load the CSV.</label></div>
+      <div class="erow"><button type="button" class="qbtn" data-act="run" disabled>Run Clay on ${n} accounts (about ${(n*rate()).toLocaleString('en-US',{maximumFractionDigits:1})} credits)</button></div>`;
+    const ack=$('ack'),run=sum.querySelector('[data-act="run"]');
+    ack.onchange=()=>{run.disabled=!ack.checked||!picked().length};
+    run.onclick=runClay;
+  }
+  ['fc','fr','fy','fz','fs','fo','cr'].forEach(k=>$(k).addEventListener('change',renderSum));
   box.querySelector('[data-act="load"]').onclick=async()=>{
     if(!MCP){msg('Open this dashboard with the Salesforce and Clay connectors to use enrichment.');return}
-    const n=+box.querySelector('select').value;
-    msg('Loading accounts from Salesforce…');
+    const n=Math.min(500,Math.max(1,parseInt($('v').value)||25));
+    $('v').value=n;
+    const after=$('ct').checked&&LAST[ID]?` AND Id > '${LAST[ID]}'`:'';
+    sum.innerHTML='';msg('Loading accounts from Salesforce…');
     try{
-      const p=await sfq(`SELECT Id, Name, Website, Country__c, US_State__c, State_Region__c, City__c, BillingPostalCode FROM Account WHERE ${w} AND Website != null AND Website NOT IN ('example.org','onmicrosoft.com','wikidot.com') LIMIT ${n}`);
+      const [p,t]=await Promise.all([
+        sfq(`SELECT Id, Name, Website, Country__c, US_State__c, State_Region__c, City__c, BillingPostalCode FROM Account WHERE ${w} AND ${EXC}${after} ORDER BY Id LIMIT ${n}`),
+        sfq(`SELECT COUNT(Id) c FROM Account WHERE ${w} AND ${EXC}`).catch(()=>null)
+      ]);
       S.rows=(p.records||[]).map(r=>({id:r.Id,name:r.Name,dom:domOf(r.Website),country:r.Country__c||'',state:r.US_State__c||'',region:r.State_Region__c||'',city:r.City__c||'',zip:r.BillingPostalCode||''})).filter(r=>r.dom);
-      if(!S.rows.length){msg('No accounts with a usable website in this check.');return}
-      out.innerHTML=`<p class="qmsg">${S.rows.length} accounts loaded. Running Clay will use ${S.rows.length} credits.</p><div class="erow"><button type="button" class="qbtn" data-act="run">Run Clay on ${S.rows.length} accounts</button></div>`;
-      out.querySelector('[data-act="run"]').onclick=run;
+      S.total=t&&t.records&&t.records[0]?Number(t.records[0].c!==undefined?t.records[0].c:t.records[0].expr0):null;
+      if(!S.rows.length){msg('No accounts with a usable website left in this check.');return}
+      S.lastId=S.rows[S.rows.length-1].id;
+      out.innerHTML='';renderSum();
     }catch(e){msg('Salesforce query failed: '+(e.code||'')+' '+(e.message||''))}
   };
-  async function run(){
+  async function runClay(){
     msg('Sending to Clay…');
     try{
       const r=await MCP.callTool(CLAY,'run_subroutine_direct',{subroutine_id:'t_0tl2waneCpBvCgyWHry',inputs:S.rows.map(x=>({'Company Domain':x.dom}))},{cache:false});
       const t=unp(r);const taskId=t&&t.taskId;
       if(!taskId){msg('Clay did not return a task id.');return}
+      LAST[ID]=S.lastId;
       let res=null;
-      for(let i=0;i<30;i++){
+      for(let i=0;i<60;i++){
         await new Promise(k=>setTimeout(k,4000));
         const g=unp(await MCP.callTool(CLAY,'get-task-context',{taskId},{cache:false}));
         msg(`Clay is working… ${g.processedEntities||0} of ${g.totalEntities||S.rows.length} done`);
         if(g.isComplete){res=g;break}
       }
-      if(!res){msg('Clay is still running. Close this panel and click Enrich again in a minute.');return}
+      if(!res){msg('Clay is still running. Click Load accounts with "Continue after the previous batch" off to retry, or check the task in Clay.');return}
       show(res);
     }catch(e){msg('Clay call failed: '+(e.code||'')+' '+(e.message||''))}
   }
@@ -369,23 +400,21 @@ function enrichUI(d,box){
         if(a.cc==='US'||a.cc==='CA'){prop.state=a.state||'';prop.note=a.state?'':'State not in picklist'}
         else prop.region=a.region||'';
         prop.flag=(r.country&&r.country!==a.country)?'chg':'ok';
-        if(prop.flag==='chg'&&r.country&&r.country!==a.country)prop.note='Country differs';
+        if(prop.flag==='chg')prop.note='Country differs';
       }
       return {...r,prop};
     });
-    out.innerHTML=`<div class="tbl"><table><thead><tr><th>Account</th><th>Now</th><th>Clay proposes</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc([r.country,r.state||r.region,r.city,r.zip].filter(Boolean).join(' / ')||'blank')}</td><td>${esc([r.prop.country,r.prop.state||r.prop.region,r.prop.city,r.prop.zip].filter(Boolean).join(' / ')||'none')}</td><td><span class="eflag ${r.prop.flag}">${r.prop.flag==='chg'?'CHANGE':r.prop.flag==='ok'?((r.state||r.region)?'MATCH':'FILL'):'UNKNOWN'}</span> ${esc(r.prop.note)}</td></tr>`).join('')}</tbody></table></div>
-    <div class="erow"><span class="qmsg">Columns in CSV:</span><label class="qmsg"><input type="checkbox" checked disabled> Id</label><label class="qmsg"><input type="checkbox" id="fc-${d.id}" checked> Country__c</label><label class="qmsg"><input type="checkbox" id="fr-${d.id}" checked> State_Region__c</label><label class="qmsg"><input type="checkbox" id="fy-${d.id}" checked> City__c</label><label class="qmsg"><input type="checkbox" id="fz-${d.id}" checked> BillingPostalCode</label><label class="qmsg"><input type="checkbox" id="fs-${d.id}"> US_State__c</label></div>
-    <div class="erow"><label class="qmsg"><input type="checkbox" id="fo-${d.id}" checked> Only fill empty fields (keep existing values)</label></div>
+    const found=rows.filter(r=>r.prop.country).length;
+    out.innerHTML=`<p class="qmsg">Clay found an address for ${found} of ${rows.length} accounts. Credits are charged by Clay for the runs, check your Clay usage page for the actual amount.</p>
+    <div class="tbl"><table><thead><tr><th>Account</th><th>Now</th><th>Clay proposes</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc([r.country,r.state||r.region,r.city,r.zip].filter(Boolean).join(' / ')||'blank')}</td><td>${esc([r.prop.country,r.prop.state||r.prop.region,r.prop.city,r.prop.zip].filter(Boolean).join(' / ')||'none')}</td><td><span class="eflag ${r.prop.flag}">${r.prop.flag==='chg'?'CHANGE':r.prop.flag==='ok'?((r.state||r.region)?'MATCH':'FILL'):'UNKNOWN'}</span> ${esc(r.prop.note)}</td></tr>`).join('')}</tbody></table></div>
     <div class="erow"><button type="button" class="qbtn" data-act="csv">Copy CSV for Data Loader</button><span class="qmsg" data-m></span></div>
-    <p class="qmsg">Review before loading. Clay returns the company HQ, which is not always where a subsidiary or regional account sits. Load with Data Loader, do not open the CSV in Excel (it strips leading zeros from zip codes).</p>`;
+    <p class="qmsg">Review before loading. Clay returns the company HQ, which is not always where a subsidiary or regional account sits. Load with Data Loader, do not open the CSV in Excel (it strips leading zeros from zip codes). The CSV uses the field ticks above at the time you click Copy.</p>`;
     out.querySelector('[data-act="csv"]').onclick=()=>{
-      const m=out.querySelector('[data-m]');
-      const fo=document.getElementById(`fo-${d.id}`).checked;
-      const cols=[['Country__c',`fc-${d.id}`,r=>r.prop.country,r=>r.country],['State_Region__c',`fr-${d.id}`,r=>r.prop.state||r.prop.region,r=>r.region],['City__c',`fy-${d.id}`,r=>r.prop.city,r=>r.city],['BillingPostalCode',`fz-${d.id}`,r=>r.prop.zip,r=>r.zip],['US_State__c',`fs-${d.id}`,r=>r.prop.state,r=>r.state]].filter(c=>document.getElementById(c[1]).checked);
-      const val=(c,r)=>(fo&&c[3](r))?'':c[2](r);
-      const lines=rows.filter(r=>r.prop.country).map(r=>[r.id,...cols.map(c=>val(c,r))]).filter(x=>x.slice(1).some(Boolean));
-      const csv=[['Id',...cols.map(c=>c[0])].join(','),...lines.map(x=>x.map(csvq).join(','))].join('\n');
-      try{navigator.clipboard.writeText(csv).then(()=>{m.textContent='Copied '+lines.length+' rows: '+cols.map(c=>c[0]).join(', ')},()=>{m.textContent='Clipboard blocked, select the table instead'})}catch(e){m.textContent='Clipboard blocked'}
+      const m=out.querySelector('[data-m]'),fo=$('fo').checked,cols=picked();
+      const val=(f,r)=>(fo&&f[3](r))?'':f[4](r);
+      const lines=rows.filter(r=>r.prop.country).map(r=>[r.id,...cols.map(f=>val(f,r))]).filter(x=>x.slice(1).some(Boolean));
+      const csv=[['Id',...cols.map(f=>f[0])].join(','),...lines.map(x=>x.map(csvq).join(','))].join('\n');
+      try{navigator.clipboard.writeText(csv).then(()=>{m.textContent='Copied '+lines.length+' rows: '+cols.map(f=>f[0]).join(', ')},()=>{m.textContent='Clipboard blocked, select the table instead'})}catch(e){m.textContent='Clipboard blocked'}
     };
   }
 }
