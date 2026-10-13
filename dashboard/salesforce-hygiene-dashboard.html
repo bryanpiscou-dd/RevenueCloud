@@ -454,15 +454,18 @@ grid.addEventListener('click',async e=>{
   say('Loading departed users and candidate owners…');
   try{
     const g=await sfq(isOwner?`SELECT OwnerId, Owner.Name n, COUNT(Id) c FROM Account WHERE Owner.IsActive = false GROUP BY OwnerId, Owner.Name`:`SELECT Assigned_AE__c, Assigned_AE__r.Name n, COUNT(Id) c FROM Account WHERE Assigned_AE__c != null AND Assigned_AE__r.IsActive = false GROUP BY Assigned_AE__c, Assigned_AE__r.Name`);
-    const u=await sfq(`SELECT Id, Name, Profile.Name FROM User WHERE IsActive = true AND UserType = 'Standard' AND Profile.Name IN ('AE','AM','Sales Manager','AM Manager') ORDER BY Name`);
+    const u=await sfq(`SELECT Id, Name, Profile.Name FROM User WHERE IsActive = true AND UserType = 'Standard' AND (Profile.Name IN ('AE','AM','Sales Manager','AM Manager') OR Name = 'No Owner') ORDER BY Name`);
     const gone=(g.records||[]).map(r=>({id:r[F],name:r.n||r.Name||r.id,c:Number(r.c!==undefined?r.c:r.expr0)})).sort((x,y)=>y.c-x.c);
-    const opts=(u.records||[]).map(r=>`<option value="${esc(r.Id)}">${esc(r.Name)} (${esc(r.Profile&&r.Profile.Name)})</option>`).join('');
+    const ur=u.records||[];const noOwner=ur.find(r=>r.Name==='No Owner');
+    const opts=(noOwner?`<option value="${esc(noOwner.Id)}">No Owner (placeholder user)</option>`:'')+ur.filter(r=>r!==noOwner).map(r=>`<option value="${esc(r.Id)}">${esc(r.Name)} (${esc(r.Profile&&r.Profile.Name)})</option>`).join('');
     if(!gone.length){say('Nothing to reassign.');return}
     box.innerHTML=`<b style="font-size:13px">Reassign ${F} (${gone.reduce((a,x)=>a+x.c,0).toLocaleString('en-US')} accounts)</b>
     <p class="qmsg" style="font-size:12px">Pick a new owner for each departed user. This page only builds the Data Loader CSV (Id, ${F}). It does not change Salesforce.</p>
     <div class="tbl"><table><thead><tr><th>Departed user</th><th>Accounts</th><th>New ${isOwner?'owner':'Assigned AE'}</th></tr></thead><tbody>${gone.map((x,i)=>`<tr><td>${esc(x.name)}</td><td>${x.c.toLocaleString('en-US')}</td><td><select id="ow-${d.id}-${i}" data-i="${i}"><option value="">Skip</option>${opts}</select></td></tr>`).join('')}</tbody></table></div>
     <p class="qmsg" style="font-size:12px"><b>Automation that probably fires on this change:</b> ${OWN_FLOWS[F]}. Test 25 accounts in a sandbox first, and load with Data Loader at batch size 200.</p>
-    <div class="erow"><button type="button" class="qbtn" data-act="build">Build CSV</button><span class="qmsg" data-m></span></div>`;
+    <div class="erow">${noOwner?`<button type="button" class="qbtn ebtn" data-act="allno">Set all to No Owner</button>`:'<span class="qmsg">No active "No Owner" user found.</span>'}<button type="button" class="qbtn" data-act="build">Build CSV</button><span class="qmsg" data-m></span></div>`;
+    const allno=box.querySelector('[data-act="allno"]');
+    if(allno)allno.onclick=()=>{box.querySelectorAll('select[data-i]').forEach(sl=>{sl.value=noOwner.Id})};
     box.querySelector('[data-act="build"]').onclick=async()=>{
       const m=box.querySelector('[data-m]');
       const picks=gone.map((x,i)=>({x,to:document.getElementById(`ow-${d.id}-${i}`).value})).filter(r=>r.to);
