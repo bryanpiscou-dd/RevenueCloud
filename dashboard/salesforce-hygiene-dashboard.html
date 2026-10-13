@@ -1,0 +1,152 @@
+<title>Salesforce Hygiene Dashboard</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: summary strip first, then domain-filtered check cards; each card drills into the actual records. */
+:root{
+  --midnight:#0b465e; --dream:#5bdbd0; --neon:#dbff55; --lavender:#e4d9ff; --sky:#a6deff; --orchid:#528c8e; --heat:#ff4f3f;
+  --bg:#eaf2f4; --surface:#ffffff; --fg:#0b465e; --muted:#3d4751; --line:#cfe0e5; --chip:#ffffff; --chip-on:#0b465e; --chip-on-fg:#dbff55;
+  --hero:#0b465e; --hero-fg:#ffffff; --hero-sub:#5bdbd0;
+  --f-body:"Poppins",Arial,sans-serif; --f-mono:"IBM Plex Mono","Courier New",monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#06303f; --surface:#0b465e; --fg:#ffffff; --muted:#bfd6dc; --line:#1f6079; --chip:#0b465e; --chip-on:#dbff55; --chip-on-fg:#0b465e;
+  --hero:#0b465e; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#06303f; --surface:#0b465e; --fg:#ffffff; --muted:#bfd6dc; --line:#1f6079; --chip:#0b465e; --chip-on:#dbff55; --chip-on-fg:#0b465e;
+  --hero:#0b465e; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:400 15px/1.45 var(--f-body);padding-inline:16px;padding-block:24px}
+.wrap{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+.hero{background:var(--hero);color:var(--hero-fg);border-radius:14px;padding:24px;display:flex;flex-direction:column;gap:14px}
+.hero h1{font:700 clamp(26px,5vw,40px)/1 var(--f-body);margin:0;text-wrap:balance;color:var(--neon)}
+.hero p{margin:0;color:var(--hero-sub);max-width:70ch}
+.mono{font-family:var(--f-mono);font-size:12px;letter-spacing:.05em}
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:rgba(255,255,255,.08);border-radius:10px;padding:12px 14px;min-width:0}
+.stat b{display:block;font:600 36px/1 var(--f-body);color:#fff}
+.stat span{font-size:12px;color:var(--hero-sub)}
+.stat.crit b{color:var(--heat)}
+.filters{display:flex;flex-wrap:wrap;gap:8px}
+.filters button{font:600 12px var(--f-body);border:1px solid var(--line);background:var(--chip);color:var(--fg);padding:7px 14px;border-radius:999px;cursor:pointer}
+.filters button[aria-pressed="true"]{background:var(--chip-on);color:var(--chip-on-fg);border-color:var(--chip-on)}
+button:focus-visible,summary:focus-visible{outline:3px solid var(--dream);outline-offset:2px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card h3{margin:0;font:600 16px/1.2 var(--f-body)}
+.top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.dom{color:var(--muted);text-transform:uppercase}
+.pill{font:600 11px var(--f-mono);letter-spacing:.05em;padding:3px 9px;border-radius:999px;color:#0b465e;white-space:nowrap}
+.pill.crit{background:var(--heat)} .pill.rev{background:var(--lavender)} .pill.info{background:var(--sky)} .pill.ok{background:var(--dream)}
+.num{display:flex;align-items:baseline;gap:8px}
+.num b{font:600 40px/1 var(--f-body)} .num span{color:var(--muted);font-size:13px}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--orchid)} .bar.crit i{background:var(--heat)}
+.card p{margin:0;color:var(--muted);font-size:13px}
+.card .act{color:var(--fg);font-size:13px}
+.act b{font-weight:600}
+details{border-top:1px solid var(--line);padding-top:8px}
+summary{cursor:pointer;font:600 12px var(--f-mono);letter-spacing:.05em}
+.tbl{overflow-x:auto;margin-top:8px}
+table{border-collapse:collapse;width:100%;font-size:12px}
+td,th{text-align:left;padding:5px 8px 5px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font:600 11px var(--f-mono);color:var(--muted)}
+.note{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px}
+.note h2{margin:0;font:600 18px var(--f-body)} .note ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;color:var(--muted)}
+.note li b{color:var(--fg)}
+.foot{color:var(--muted);font-size:12px}
+</style>
+
+<div class="wrap">
+  <header class="hero">
+    <span class="mono" style="color:var(--dream)">LIVE SNAPSHOT · 13 OCT 2026 · SALESFORCE PRODUCTION</span>
+    <h1>Salesforce hygiene dashboard</h1>
+    <p>Where ownership, pipeline, users, contacts and automation have drifted. Each check shows the count, the base it is measured against, and the records to fix.</p>
+    <div class="strip" id="strip"></div>
+  </header>
+
+  <div class="filters" id="filters" role="group" aria-label="Filter by domain"></div>
+  <div class="grid" id="grid"></div>
+
+  <section class="note">
+    <h2>What this dashboard cannot tell you yet</h2>
+    <ul>
+      <li><b>Flow last run date.</b> Salesforce does not expose it in queryable data. The flow check uses last modified date as a proxy. A flow edited 14 months ago may still run daily. To get real run history, enable Flow Event Monitoring (Shield) or add a log write in each flow.</li>
+      <li><b>Account country.</b> 98% of accounts have no Billing Country. Before treating it as a defect, confirm which field is the source of truth for territory and region.</li>
+      <li><b>Sample cap.</b> The flow list is capped at 200 custom active flows, ordered oldest first.</li>
+    </ul>
+  </section>
+  <p class="foot">Queries and the native Salesforce report build spec are in <span class="mono">dashboard/hygiene-checks.md</span>. Counts are a point-in-time snapshot, refresh by re-running them.</p>
+</div>
+
+<script>
+const D=[
+{id:'acc-inactive',dom:'Ownership',t:'Accounts owned by an inactive user',n:24,base:234348,bl:'accounts',sev:'crit',
+ why:'All 24 belong to one departed owner. Named customers such as Amway, Despegar and Mouser sit with nobody accountable. Duplicates are visible: Despegar appears 4 times, Mouser Electronics and Amway several.',
+ act:'Reassign to the territory owner, then merge the duplicates.',
+ cols:['Account','Owner'],rows:[['Amway','Allanah Roopchand'],['Amway India','Allanah Roopchand'],['Amway Korea','Allanah Roopchand'],['Despegar (x4 variants)','Allanah Roopchand'],['Hanes / Hanes Mill Outlet','Allanah Roopchand'],['Mouser Electronics (x2)','Allanah Roopchand'],['Best Day','Allanah Roopchand'],['ViajaNet','Allanah Roopchand'],['Serasa','Allanah Roopchand'],['+ 9 more','Allanah Roopchand']]},
+{id:'opp-inactive',dom:'Pipeline',t:'Open opportunities owned by an inactive user',n:8,base:614,bl:'open opps',sev:'crit',
+ why:'All partner-sourced, all owned by Teague Dufresne, close dates between 2023 and 2024. 7 of 8 have no amount. They inflate stage counts and will never be worked.',
+ act:'Close as lost or reassign to the partner manager. Add an inactive-owner guard to the partner deal registration flow.',
+ cols:['Opportunity','Stage','Close','Amount'],rows:[['SecuTix','New Partner Source Opp','2024-09-30','20,000'],['YourTango','Deal Approved (Partner Reg)','2024-09-30','blank'],['Etsy','Deal Approved (Partner Reg)','2024-09-30','blank'],['sakscloudservices.com','Deal Approved (Partner Reg)','2024-09-30','blank'],['HYCU','New Partner Source Opp','2024-09-30','blank'],['Agoda','New Partner Source Opp','2024-09-30','blank'],['Surest','Deal Approved (Partner Reg)','2023-07-07','blank'],['Lulu Press / GuidePoint','Deal Approved (Partner Reg)','2024-12-31','blank']]},
+{id:'opp-past',dom:'Pipeline',t:'Open opportunities past close date',n:47,base:614,bl:'open opps',sev:'crit',
+ why:'7.6% of open pipeline has a close date in the past. This distorts forecast, coverage and slippage reporting.',
+ act:'Weekly push-or-close review per manager. Consider a validation rule blocking a past close date on open stages.'},
+{id:'opp-stale',dom:'Pipeline',t:'Open opportunities with no activity in 30 days',n:166,base:614,bl:'open opps',sev:'rev',
+ why:'27% of open pipeline has had no logged activity for 30 days or more. Either work is not logged (Outreach, Gong sync gap) or the deals are dead.',
+ act:'Segment by stage. Late-stage and no activity is the priority list.'},
+{id:'opp-amount',dom:'Pipeline',t:'Open opportunities with blank or zero amount',n:94,base:614,bl:'open opps',sev:'rev',
+ why:'15% of open pipeline has no value, so it is invisible in every amount-based report.',
+ act:'Make amount required past the qualification stage.'},
+{id:'usr-7',dom:'Users',t:'Active users with no login in 7 days',n:9,base:130,bl:'active standard users',sev:'rev',
+ why:'4 of the 9 are integration or service users (expected). 5 are people or placeholders. 7 days is a noisy threshold, 30 days leaves 3.',
+ act:'Review the 5 human rows for license reclaim. Exclude API-only profiles from this check.',
+ cols:['User','Profile','Last login'],rows:[['Integration Planhat','API Only Integrations','never'],['Sécurité Utilisateur','Analytics Cloud Security','never'],['Common Room','API Profile','never'],['Intégration Utilisateur','Analytics Cloud Integration','2024-11-21'],['No Owner','Standard Platform User','2025-12-15'],['Gilles Walbrou','C-Level','2026-09-11'],['Marine Picard','Marketing & Growth','2026-09-23'],['Wen Lee','Legal','2026-10-01'],['Leslie Ros','Standard Platform User','2026-10-02']]},
+{id:'usr-30',dom:'Users',t:'Active users with no login in 30 days',n:3,base:130,bl:'active standard users',sev:'info',
+ why:'One integration user (last login Nov 2024), the "No Owner" placeholder (Dec 2025) and one C-Level user.',
+ act:'Confirm "No Owner" is still needed as a routing owner. Freeze or deactivate the stale integration user.'},
+{id:'lead-inactive',dom:'Ownership',t:'Unconverted leads owned by an inactive user',n:9,base:null,sev:'rev',
+ why:'Leads with no live owner never get routed or followed up.',act:'Run lead reassignment to the round-robin queue.'},
+{id:'case-inactive',dom:'Ownership',t:'Open cases owned by an inactive user',n:0,base:null,sev:'ok',why:'Clean.',act:'No action.'},
+{id:'con-noacct',dom:'Data quality',t:'Contacts with no account',n:10300,base:null,sev:'rev',
+ why:'Orphan contacts cannot roll up to account reporting, territory or ABM. The scheduled flow that links them is not clearing the backlog.',
+ act:'Check the "Schedule Update Contact created with No Account" flow for failures. Backfill by email domain.'},
+{id:'con-noemail',dom:'Data quality',t:'Contacts with no email',n:19840,base:null,sev:'rev',
+ why:'Not reachable by marketing or sales sequences.',act:'Decide per source: enrich, archive or flag as non-marketable.'},
+{id:'acc-country',dom:'Data quality',t:'Accounts with no Billing Country',n:230711,base:234348,bl:'accounts',sev:'info',
+ why:'98% blank. Likely a different field drives region. This is an architecture question before it is a hygiene one.',
+ act:'Document the source-of-truth field for country and region.'},
+{id:'flow-12',dom:'Automation',t:'Custom active flows not modified in 12 months',n:92,base:200,bl:'flows sampled',sev:'rev',
+ why:'Proxy for stale automation, not proof it does not run. 140 of 200 are untouched for 6 months. 10 are scheduled flows, which are the highest-risk if the logic is outdated.',
+ act:'Tag each flow owner and purpose. Review scheduled flows first. Retire what has no owner.'},
+{id:'flow-smell',dom:'Automation',t:'Flows named as test or non-production, active in production',n:2,base:null,sev:'rev',
+ why:'Incorrect_Stage_Notification_NOT_PROD_Setup and Datatable_Configuration_Wizard5 are active.',
+ act:'Deactivate or rename. Enforce a naming convention.',
+ cols:['Flow','Last modified'],rows:[['Incorrect_Stage_Notification_NOT_PROD_Setup','2025-06-19'],['Datatable_Configuration_Wizard5','2024-09-11']]},
+{id:'flow-paused',dom:'Automation',t:'Paused flow interviews older than 30 days',n:1,base:48,bl:'paused interviews',sev:'info',
+ why:'48 interviews are currently paused, only 1 is older than 30 days.',act:'Delete the stale interview from Paused Flow Interviews.'}
+];
+const fmt=n=>n.toLocaleString('en-US');
+const sevLabel={crit:'CRITICAL',rev:'REVIEW',info:'WATCH',ok:'CLEAN'};
+const el=(h)=>{const t=document.createElement('template');t.innerHTML=h.trim();return t.content.firstChild};
+const strip=document.getElementById('strip');
+const c=s=>D.filter(d=>d.sev===s).length;
+[['crit','Critical checks',c('crit')],['',  'Review',c('rev')],['','Watch',c('info')],['','Clean',c('ok')],['','Checks run',D.length]].forEach(([k,l,v])=>strip.append(el(`<div class="stat ${k}"><b>${v}</b><span>${l}</span></div>`)));
+const doms=['All',...new Set(D.map(d=>d.dom))];
+let cur='All';
+const fb=document.getElementById('filters'),grid=document.getElementById('grid');
+function card(d){
+  const pct=d.base?Math.max(d.n/d.base*100,d.n?1:0):null;
+  const ptxt=d.base?` of ${fmt(d.base)} ${d.bl} (${(d.n/d.base*100).toFixed(d.n/d.base<.01?2:1)}%)`:'';
+  const drill=d.rows?`<details><summary>SHOW RECORDS</summary><div class="tbl"><table><thead><tr>${d.cols.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${d.rows.map(r=>`<tr>${r.map(x=>`<td>${x}</td>`).join('')}</tr>`).join('')}</tbody></table></div></details>`:'';
+  return el(`<article class="card"><div class="top"><div><div class="mono dom">${d.dom}</div><h3>${d.t}</h3></div><span class="pill ${d.sev}">${sevLabel[d.sev]}</span></div>
+  <div class="num"><b>${fmt(d.n)}</b><span>${ptxt}</span></div>
+  ${pct!==null?`<div class="bar ${d.sev==='crit'?'crit':''}"><i style="width:${Math.min(pct,100)}%"></i></div>`:''}
+  <p>${d.why}</p><p class="act"><b>Action:</b> ${d.act}</p>${drill}</article>`);
+}
+function draw(){
+  fb.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.d===cur));
+  grid.replaceChildren(...D.filter(d=>cur==='All'||d.dom===cur).sort((a,b)=>['crit','rev','info','ok'].indexOf(a.sev)-['crit','rev','info','ok'].indexOf(b.sev)).map(card));
+}
+doms.forEach(d=>{const b=el(`<button type="button" data-d="${d}">${d}</button>`);b.onclick=()=>{cur=d;draw()};fb.append(b)});
+draw();
+</script>
