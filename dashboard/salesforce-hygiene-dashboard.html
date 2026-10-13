@@ -116,10 +116,16 @@ const D=[
  why:'US accounts carrying EMEA or Latin America in New US Territory. Region is correctly North America on the sampled rows, so the territory value is what is wrong. These accounts route to the wrong team.',
  act:'39 of 53 have no US State, see the empty US State check. Fix the state, then re-run territory assignment.',
  cols:['Account','Country','Region','Territory'],rows:[['CAPTAIN TECH USA LLC','United States','North America','EMEA'],['Work at home','United States','North America','EMEA'],['Caterkids Hawaii','United States','North America','EMEA'],['EVA Airways Corp.','United States','North America','EMEA'],['Online-Design','United States','North America','EMEA'],['tresresortwear.com','United States','North America','EMEA']]},
-{id:'mm-us-nostate',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('United States','Canada') AND US_State__c = null"},dom:'Territory mismatch',t:'Country = United States or Canada, US State is empty',n:641,base:73615,bl:'US and Canada accounts',sev:'crit',
- why:'39 US and 602 Canadian accounts have no state or province (US State also holds Canadian provinces). No state means no territory, so the territory falls back to EMEA: 601 of the 602 Canadian accounts and all 39 US ones are in EMEA. This is the root cause of both the US and the Canada territory mismatches. Billing State is empty on the US ones, so there is nothing to derive it from.',
- act:'Backfill state or province via enrichment, then re-run territory assignment. Make US State required when Country is United States or Canada.',
- cols:['Account','Country','Region','Territory','State'],rows:[['CAPTAIN TECH USA LLC','United States','North America','EMEA','blank'],['Work at home','United States','North America','EMEA','blank'],['Caterkids Hawaii','United States','North America','EMEA','blank'],['EVA Airways Corp.','United States','North America','EMEA','blank'],['Online-Design','United States','North America','EMEA','blank'],['+ 635 more (use the SOQL button)','US / Canada','','EMEA','blank']]},
+{id:'mm-us-nostate',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, State_Region__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('United States','Canada') AND US_State__c = null"},dom:'Territory mismatch',t:'Country = United States or Canada, US State is empty',n:641,base:73615,bl:'US and Canada accounts',sev:'crit',
+ why:'39 US and 602 Canadian accounts have no state or province. No state means no territory, so it falls back to EMEA: 601 of the 602 Canadian accounts and all 39 US ones are in EMEA. Root cause of both the US and Canada territory mismatches. Split below by whether State Region (the field that drives US State) has a value.',
+ act:'Work the two sub-checks below, then re-run territory assignment. Make US State required when Country is United States or Canada.'},
+{id:'mm-state-both',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, State_Region__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('United States','Canada') AND US_State__c = null AND State_Region__c = null"},dom:'Territory mismatch',t:'US or Canada: US State and State Region both empty',n:511,base:73615,bl:'US and Canada accounts',sev:'crit',
+ why:'Nothing to derive the state from. Billing State is empty on the US ones too. These need enrichment (domain, Clay, Gong) or manual entry.',
+ act:'Enrich state or province from the account domain or HQ data, then let the flow populate US State.'},
+{id:'mm-state-region',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, State_Region__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('United States','Canada') AND US_State__c = null AND State_Region__c != null"},dom:'Territory mismatch',t:'US or Canada: US State empty but State Region is filled',n:130,base:73615,bl:'US and Canada accounts',sev:'rev',
+ why:'20 US and 110 Canadian accounts. The State Region values are foreign (England, Berlin, Occitanie, Dubai, Lima, Tunis), so the state stays empty because the region is not a US state or Canadian province. The Country value is most likely wrong, not the state.',
+ act:'Review Country first. Correct it from State Region and the domain, then let territory reassign.',
+ cols:['Account','State Region','Country'],rows:[['Online-Design','England','US/Canada'],['tanitoss','Tunis','US/Canada'],['Mews Partners','Occitanie','US/Canada'],['BaziCenter','Dubai','US/Canada'],['KTO.com','Lima','US/Canada'],['Lovehoney Group','Berlin','US/Canada'],['KPMG International Limited','Berlin','US/Canada']]},
 {id:'mm-state-nonus',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c NOT IN ('United States','Canada') AND Country__c != null AND US_State__c != null"},dom:'Territory mismatch',t:'US State filled on a non-US, non-Canada account',n:1927,base:null,sev:'rev',
  why:'5,898 non-US accounts carry a US State. 3,971 are Canada (provinces, by design). The remaining 1,927 are mostly India (271), China (216), UK (146), Russia (105) and Brazil (98), and explain why they land in US sub-territories.',
  act:'Clear US State where Country is not US or Canada, and add a flow guard.'},
@@ -133,6 +139,21 @@ const D=[
  why:'Checked on 14 European countries. Examples: Germany tagged Other (Sixt Antilles, eddb.io, Timpul), Spain tagged North America (colpal.com).',act:'Fix Region from Country with a formula or flow instead of manual entry.'},
 {id:'mm-nocountry-terr',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c = null AND New_US_Territory__c IN ('Midwest','Northeast','Northern California','Pacific','New York','Southeast')"},dom:'Territory mismatch',t:'Territory set to a US sub-territory but Country is blank',n:710,base:46266,bl:'accounts with no country',sev:'rev',
  why:'A US territory was assigned without a country, so it was derived from something else (state, domain or an import).',act:'Backfill Country from the source that produced the territory.'},
+{id:'dup-con-email',q:{"tabs": [{"k": "GROUPS", "t": "SELECT Email, COUNT(Id) c\nFROM Contact\nWHERE Email != null\nGROUP BY Email\nHAVING COUNT(Id) > 1\nORDER BY COUNT(Id) DESC"}, {"k": "DETAIL", "t": "SELECT Id, Name, Email, Account.Name, Owner.Name, CreatedDate\nFROM Contact\nWHERE Email = '<paste email from GROUPS>'"}]},dom:'Duplicates',t:'Contacts sharing the same email',n:171,base:228787,bl:'contacts (171 emails shared by 349 contacts, 178 redundant)',sev:'rev',
+ why:'171 email addresses sit on 2 to 4 contacts each. Worst: a@apple.com and gougalfr@amazon.co.uk (4 each), teresa_dorety@comcast.com, mhugon@kaliop.com and janko.ulaga@goflink.com (3 each). One internal address, bo-customers@datadome.co, is duplicated and should not be a contact.',
+ act:'Merge by email. Add a matching + duplicate rule on Contact Email that blocks creation, not just alerts.',
+ cols:['Email','Contacts'],rows:[['a@apple.com','4'],['gougalfr@amazon.co.uk','4'],['teresa_dorety@comcast.com','3'],['mhugon@kaliop.com','3'],['janko.ulaga@goflink.com','3'],['+ 166 more with 2','2']]},
+{id:'dup-acc-web',q:{"tabs": [{"k": "GROUPS", "t": "SELECT Website, COUNT(Id) c\nFROM Account\nWHERE Website != null\nGROUP BY Website\nHAVING COUNT(Id) > 1\nORDER BY COUNT(Id) DESC"}, {"k": "DETAIL", "t": "SELECT Id, Name, Website, Country__c, Owner.Name, CreatedDate, LastActivityDate\nFROM Account\nWHERE Website = '<paste website from GROUPS>'"}]},dom:'Duplicates',t:'Accounts sharing the same website',n:493,base:233235,bl:'accounts with a website (493 websites shared by 1,123 accounts, 630 redundant)',sev:'crit',
+ why:'Same domain, several accounts. Part of it is junk: example.org (42), onmicrosoft.com (17) and wikidot.com (8) are placeholder or hosting domains, and two oastify.com hosts are security-scanner test strings. The rest is real: shippo.com (10), kmbs.konicaminolta.us (6), insurify.com, pdp.com, str.us (5 each).',
+ act:'Delete or merge the junk accounts first, then merge real duplicates. Set the domain as the matching key on the Account duplicate rule.',
+ cols:['Website','Accounts'],rows:[['example.org','42'],['onmicrosoft.com','17'],['shippo.com','10'],['wikidot.com','8'],['kmbs.konicaminolta.us','6'],['insurify.com / pdp.com / str.us','5 each']]},
+{id:'dup-acc-name',q:{"tabs": [{"k": "GROUPS", "t": "SELECT Name, COUNT(Id) c\nFROM Account\nGROUP BY Name\nHAVING COUNT(Id) > 1\nORDER BY COUNT(Id) DESC\nLIMIT 2000"}, {"k": "DETAIL", "t": "SELECT Id, Name, Website, Country__c, Owner.Name, CreatedDate, LastActivityDate\nFROM Account\nWHERE Name = '<paste name from GROUPS>'"}]},dom:'Duplicates',t:'Accounts sharing the same name',n:2000,base:234348,bl:'accounts. At least 2,000 names, query cap reached',sev:'crit',
+ why:'The first 2,000 duplicate names cover 4,991 accounts (2,991 redundant), and the real total is higher. Worst: T P Equipment Leasing (20), Fansided (18), Kayak (17), Ebay (16), CBS Corporation (15), Trovit (15). Case variants such as Fansided and FanSided are also not merged.',
+ act:'Run a bulk dedupe in the order of group size. Use domain plus normalized name, not name alone, since some same-name accounts are legitimately different companies.',
+ cols:['Account name','Accounts'],rows:[['T P EQUIPMENT LEASING','20'],['Fansided','18'],['Kayak','17'],['Ebay','16'],['CBS Corporation','15'],['Trovit','15'],['Outdoor Hub LLC','14']]},
+{id:'dup-rules',dom:'Duplicates',t:'Duplicate record sets logged by duplicate rules',n:5241,base:null,sev:'info',
+ why:'Salesforce already flagged 5,241 duplicate sets (DuplicateRecordSet). Rules detect duplicates but the backlog is not being merged.',
+ act:'Review the matching rules, then work the backlog from the Duplicate Record Sets tab.',q:{"tabs": [{"k": "SETS", "t": "SELECT Id, DuplicateRuleId, RecordCount, CreatedDate\nFROM DuplicateRecordSet\nORDER BY CreatedDate DESC"}, {"k": "ITEMS", "t": "SELECT Id, DuplicateRecordSetId, RecordId\nFROM DuplicateRecordItem"}]}},
 {id:'acc-country',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c = null"},dom:'Data quality',t:'Accounts with no Country',n:46266,base:234348,bl:'accounts',sev:'rev',
  why:'Based on Country__c. One in five accounts has no country, which also blocks territory and region logic.',
  act:'Enrich from website domain or Clay. Make Country required on creation.'},
@@ -173,16 +194,17 @@ function draw(){
   grid.replaceChildren(...D.filter(d=>cur==='All'||d.dom===cur).sort((a,b)=>['crit','rev','info','ok'].indexOf(a.sev)-['crit','rev','info','ok'].indexOf(b.sev)).map(card));
 }
 const d365=()=>new Date(Date.now()-365*864e5).toISOString().slice(0,10)+'T00:00:00Z';
-function soql(d,mode){
+function tabs(d){
+  if(d.q.tabs)return d.q.tabs;
   const w=d.q.w.replace('{D365}',d365());
-  return mode==='count'?`SELECT COUNT(Id) c FROM ${d.q.o} WHERE ${w}`:`SELECT ${d.q.f}\nFROM ${d.q.o}\nWHERE ${w}`;
+  return [{k:'RECORDS',t:`SELECT ${d.q.f}\nFROM ${d.q.o}\nWHERE ${w}`},{k:'COUNT',t:`SELECT COUNT(Id) c FROM ${d.q.o} WHERE ${w}`}];
 }
-function showQ(d,box,mode){
-  const text=soql(d,mode);
+function showQ(d,box,i){
+  const T=tabs(d),text=T[i].t;
   box.hidden=false;
-  box.innerHTML=`<div class="qtabs"><button type="button" data-m="list" aria-pressed="${mode==='list'}">RECORDS</button><button type="button" data-m="count" aria-pressed="${mode==='count'}">COUNT</button></div><pre></pre><div><button type="button" class="qbtn" data-copy>Copy</button> <span class="qmsg"></span></div>`;
+  box.innerHTML=`<div class="qtabs">${T.map((x,j)=>`<button type="button" data-m="${j}" aria-pressed="${j===i}">${x.k}</button>`).join('')}</div><pre></pre><div><button type="button" class="qbtn" data-copy>Copy</button> <span class="qmsg"></span></div>`;
   const pre=box.querySelector('pre');pre.textContent=text;
-  box.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>showQ(d,box,b.dataset.m));
+  box.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>showQ(d,box,+b.dataset.m));
   box.querySelector('[data-copy]').onclick=()=>{
     const msg=box.querySelector('.qmsg');
     const sel=()=>{const r=document.createRange();r.selectNodeContents(pre);const g=getSelection();g.removeAllRanges();g.addRange(r);msg.textContent='Press Ctrl+C to copy'};
@@ -193,7 +215,7 @@ grid.addEventListener('click',e=>{
   const b=e.target.closest('[data-q]');if(!b)return;
   const d=D.find(x=>x.id===b.dataset.q),box=grid.querySelector(`[data-box="${d.id}"]`);
   if(!box.hidden){box.hidden=true;return}
-  showQ(d,box,'list');
+  showQ(d,box,0);
 });
 doms.forEach(d=>{const b=el(`<button type="button" data-d="${d}">${d}</button>`);b.onclick=()=>{cur=d;draw()};fb.append(b)});
 draw();

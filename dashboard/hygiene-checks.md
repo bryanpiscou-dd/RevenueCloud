@@ -15,12 +15,18 @@ SOQL behind each tile of `salesforce-hygiene-dashboard.html`. Re-run to refresh.
 | Accounts, Assigned AE inactive | `SELECT Assigned_AE__r.Name, COUNT(Id) FROM Account WHERE Assigned_AE__c != null AND Assigned_AE__r.IsActive = false GROUP BY Assigned_AE__r.Name` (do not use `Assigned_AE__r.IsActive = false` alone, it also matches null) | Accounts |
 | Accounts, no Country | `... FROM Account WHERE Country__c = null` | Accounts |
 | Mismatch: US country, non-US territory | `... WHERE Country__c = 'United States' AND New_US_Territory__c IN ('EMEA','Latin America')` | Accounts |
+| Mismatch: US or Canada, US State and State Region both empty | `... WHERE Country__c IN ('United States','Canada') AND US_State__c = null AND State_Region__c = null` | Accounts |
+| Mismatch: US or Canada, US State empty, State Region filled (country likely wrong) | `... AND US_State__c = null AND State_Region__c != null` | Accounts |
 | Mismatch: US or Canada, US State empty (state field also holds provinces) | `... WHERE Country__c IN ('United States','Canada') AND US_State__c = null` | Accounts |
 | Mismatch: US State on non-US/CA country | `... WHERE Country__c NOT IN ('United States','Canada') AND Country__c != null AND US_State__c != null` | Accounts |
 | Mismatch: non-US/CA country in US sub-territory | `... WHERE Country__c NOT IN ('United States','Canada') AND Country__c != null AND New_US_Territory__c IN ('Midwest','Northeast','Northern California','Pacific','New York','Southeast')` | Accounts |
 | Mismatch: LatAm country elsewhere | `... WHERE Country__c IN ('Brazil','Mexico','Argentina','Colombia') AND New_US_Territory__c != 'Latin America'` | Accounts |
 | Mismatch: Europe country, other Region | `... WHERE Country__c IN (<European list>) AND Region__c IN ('North America','Latin America','Asia Pacific','Oceania')` | Accounts |
 | Territory set, Country blank | `... WHERE Country__c = null AND New_US_Territory__c IN (<US sub-territories>)` | Accounts |
+| Duplicate contacts by email | `SELECT Email, COUNT(Id) FROM Contact WHERE Email != null GROUP BY Email HAVING COUNT(Id) > 1` | Contacts (summary report grouped by Email, record count > 1) |
+| Duplicate accounts by website | `SELECT Website, COUNT(Id) FROM Account WHERE Website != null GROUP BY Website HAVING COUNT(Id) > 1` | Accounts (summary by Website) |
+| Duplicate accounts by name | `SELECT Name, COUNT(Id) FROM Account GROUP BY Name HAVING COUNT(Id) > 1 LIMIT 2000` (capped, real total is higher) | Accounts (summary by Name) |
+| Duplicate sets from rules | `SELECT COUNT(Id) FROM DuplicateRecordSet` | none |
 | Flows, stale | `SELECT ApiName, ProcessType, TriggerType, LastModifiedDate FROM FlowDefinitionView WHERE IsActive = true AND NamespacePrefix = null AND LastModifiedDate < <today - 365d>` (split by date to stay under 2,000 rows) | none (Tooling API) |
 | Paused interviews | `SELECT COUNT(Id) FROM FlowInterview WHERE CreatedDate < LAST_N_DAYS:30` | none |
 
