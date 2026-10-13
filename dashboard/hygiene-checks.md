@@ -1,4 +1,4 @@
-# Salesforce hygiene checks
+# Salesforce Admin Hygiene Dashboard: checks
 
 SOQL behind each tile of `salesforce-hygiene-dashboard.html`. Re-run to refresh. Native build: one Report per check, grouped into a Lightning Dashboard (Ownership / Pipeline / Users / Data quality / Automation).
 
@@ -35,7 +35,7 @@ Each tile in the dashboard also has a Generate SOQL button (records list and cou
 ## Live refresh and enrichment
 - The dashboard page calls the viewer's Salesforce connector (`soqlQuery`) on open and every 24h while open. Viewers without the connector see the last published snapshot (13 Oct 2026).
 - Commentary text on each tile is a snapshot. Counts, percentages and severity update live.
-- "Enrich with Clay" runs the Clay Company Address function (one credit per account) on up to 50 accounts from a check and proposes Country, US State and State Region. It never writes to Salesforce: load the copied CSV with Data Loader after review.
+- "Enrich with Clay" runs the Clay Company Address function (one credit per account) on up to 50 accounts from a check and proposes Country__c and State_Region__c (US_State__c optional, off by default because it is derived from State_Region__c). It never writes to Salesforce: load the copied CSV with Data Loader after review.
 
 ## Known limits
 - Flow last run date is not queryable. Last modified date is a proxy. Use Flow Event Monitoring or an in-flow log for real run history.

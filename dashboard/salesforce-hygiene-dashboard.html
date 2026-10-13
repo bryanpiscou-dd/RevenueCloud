@@ -1,4 +1,4 @@
-<title>Salesforce Hygiene Dashboard</title>
+<title>Salesforce Admin Hygiene Dashboard</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
 <style>
 /* Layout: summary strip first, then domain-filtered check cards; each card drills into the actual records. */
@@ -75,7 +75,7 @@ th{font:600 11px var(--f-mono);color:var(--muted)}
 <div class="wrap">
   <header class="hero">
     <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center"><span class="mono" id="status" style="color:var(--dream)">SNAPSHOT · 13 OCT 2026 · SALESFORCE PRODUCTION</span><button type="button" class="rbtn" id="refresh" hidden>Refresh now</button></div>
-    <h1>Salesforce hygiene dashboard</h1>
+    <h1>Salesforce Admin Hygiene Dashboard</h1>
     <p>Where ownership, pipeline, users, contacts and automation have drifted. Each check shows the count, the base it is measured against, and the records to fix.</p>
     <div class="strip" id="strip"></div>
   </header>
@@ -303,7 +303,14 @@ function enrichUI(d,box){
   const w=d.q.w;
   const S={rows:[],res:null};
   box.innerHTML=`<div class="erow"><b style="font-size:13px">Enrich with Clay (Company Address)</b></div>
-  <p class="qmsg" style="font-size:12px">Loads accounts from this check that have a website, asks Clay for the HQ address, and proposes Country, US State and State Region. Nothing is written to Salesforce: review, then copy the CSV into Data Loader. Each account costs one Clay credit.</p>
+  <p class="qmsg" style="font-size:12px">Loads accounts from this check that have a website and asks Clay for the HQ address. Nothing is written to Salesforce by this page: you review the proposals, then copy a CSV and load it with Data Loader. One Clay credit per account.</p>
+  <div class="tbl"><table><thead><tr><th>Field</th><th>In the CSV</th><th>Rule</th></tr></thead><tbody>
+  <tr><td>Id</td><td>always</td><td>Match key</td></tr>
+  <tr><td>Country__c</td><td>on by default</td><td>Country name from Clay's address (e.g. Canada)</td></tr>
+  <tr><td>State_Region__c</td><td>on by default</td><td>US and Canada: full state or province name, same format as today. Other countries: the region text.</td></tr>
+  <tr><td>US_State__c</td><td>off by default</td><td>Derived from State_Region__c (72,858 of 73,615 US and Canada accounts already match). Turn on only if the automation does not fill it.</td></tr>
+  <tr><td>New_US_Territory__c, Region__c, Owner</td><td>never</td><td>Not touched. Re-run territory assignment after loading.</td></tr>
+  </tbody></table></div>
   <div class="erow"><label for="n-${d.id}" class="qmsg">Accounts</label><select id="n-${d.id}"><option>10</option><option selected>25</option><option>50</option></select><button type="button" class="qbtn" data-act="load">Load accounts</button></div>
   <div data-out></div>`;
   const out=box.querySelector('[data-out]');
@@ -352,13 +359,15 @@ function enrichUI(d,box){
       }
       return {...r,prop};
     });
-    const csv=['Id,Name,Country__c,US_State__c,State_Region__c',...rows.filter(r=>r.prop.country).map(r=>[r.id,r.name,r.prop.country,r.prop.state,r.prop.region].map(csvq).join(','))].join('\n');
     out.innerHTML=`<div class="tbl"><table><thead><tr><th>Account</th><th>Now</th><th>Clay proposes</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc([r.country,r.state||r.region].filter(Boolean).join(' / ')||'blank')}</td><td>${esc([r.prop.country,r.prop.state||r.prop.region].filter(Boolean).join(' / ')||'none')}</td><td><span class="eflag ${r.prop.flag}">${r.prop.flag==='chg'?'CHANGE':r.prop.flag==='ok'?((r.state||r.region)?'MATCH':'FILL'):'UNKNOWN'}</span> ${esc(r.prop.note)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="erow"><span class="qmsg">Columns in CSV:</span><label class="qmsg"><input type="checkbox" checked disabled> Id</label><label class="qmsg"><input type="checkbox" id="fc-${d.id}" checked> Country__c</label><label class="qmsg"><input type="checkbox" id="fr-${d.id}" checked> State_Region__c</label><label class="qmsg"><input type="checkbox" id="fs-${d.id}"> US_State__c</label></div>
     <div class="erow"><button type="button" class="qbtn" data-act="csv">Copy CSV for Data Loader</button><span class="qmsg" data-m></span></div>
     <p class="qmsg">Review before loading. Clay returns the company HQ, which is not always where a subsidiary or regional account sits.</p>`;
     out.querySelector('[data-act="csv"]').onclick=()=>{
       const m=out.querySelector('[data-m]');
-      try{navigator.clipboard.writeText(csv).then(()=>{m.textContent='Copied'},()=>{m.textContent='Clipboard blocked, select the table instead'})}catch(e){m.textContent='Clipboard blocked'}
+      const cols=[['Country__c',`fc-${d.id}`,r=>r.prop.country],['State_Region__c',`fr-${d.id}`,r=>r.prop.state||r.prop.region],['US_State__c',`fs-${d.id}`,r=>r.prop.state]].filter(c=>document.getElementById(c[1]).checked);
+      const csv=[['Id',...cols.map(c=>c[0])].join(','),...rows.filter(r=>r.prop.country).map(r=>[r.id,...cols.map(c=>c[2](r))].map(csvq).join(','))].join('\n');
+      try{navigator.clipboard.writeText(csv).then(()=>{m.textContent='Copied: '+cols.map(c=>c[0]).join(', ')},()=>{m.textContent='Clipboard blocked, select the table instead'})}catch(e){m.textContent='Clipboard blocked'}
     };
   }
 }
