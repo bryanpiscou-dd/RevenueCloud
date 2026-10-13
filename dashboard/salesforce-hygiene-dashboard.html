@@ -53,6 +53,7 @@ button:focus-visible,summary:focus-visible{outline:3px solid var(--dream);outlin
 .disc ul{margin:6px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
 .num-in{width:90px;font:400 12px var(--f-body);padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
 .qbtn:disabled{opacity:.45;cursor:not-allowed}
+.csvbox{width:100%;min-height:90px;font:400 11px var(--f-mono);background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px}
 .ebox select{font:400 12px var(--f-body);padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
 .erow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .eflag{font:600 10px var(--f-mono);padding:2px 7px;border-radius:999px;color:#0b465e}
@@ -463,7 +464,7 @@ grid.addEventListener('click',async e=>{
     <p class="qmsg" style="font-size:12px">Pick a new owner for each departed user. This page only builds the Data Loader CSV (Id, ${F}). It does not change Salesforce.</p>
     <div class="tbl"><table><thead><tr><th>Departed user</th><th>Accounts</th><th>New ${isOwner?'owner':'Assigned AE'}</th></tr></thead><tbody>${gone.map((x,i)=>`<tr><td>${esc(x.name)}</td><td>${x.c.toLocaleString('en-US')}</td><td><select id="ow-${d.id}-${i}" data-i="${i}"><option value="">Skip</option>${opts}</select></td></tr>`).join('')}</tbody></table></div>
     <p class="qmsg" style="font-size:12px"><b>Automation that probably fires on this change:</b> ${OWN_FLOWS[F]}. Test 25 accounts in a sandbox first, and load with Data Loader at batch size 200.</p>
-    <div class="erow">${noOwner?`<button type="button" class="qbtn ebtn" data-act="allno">Set all to No Owner</button>`:'<span class="qmsg">No active "No Owner" user found.</span>'}<button type="button" class="qbtn" data-act="build">Build CSV</button><span class="qmsg" data-m></span></div>`;
+    <div class="erow">${noOwner?`<button type="button" class="qbtn ebtn" data-act="allno">Set all to No Owner</button>`:'<span class="qmsg">No active "No Owner" user found.</span>'}<button type="button" class="qbtn" data-act="build">Load accounts and build CSV</button><span class="qmsg" data-m></span></div><div data-ops></div>`;
     const allno=box.querySelector('[data-act="allno"]');
     if(allno)allno.onclick=()=>{box.querySelectorAll('select[data-i]').forEach(sl=>{sl.value=noOwner.Id})};
     box.querySelector('[data-act="build"]').onclick=async()=>{
@@ -484,7 +485,12 @@ grid.addEventListener('click',async e=>{
           }
         }
         const csv=lines.join('\n');
-        try{await navigator.clipboard.writeText(csv);m.textContent=`Copied ${n.toLocaleString('en-US')} rows (Id, ${F})`}catch(err){m.textContent='Clipboard blocked: '+n+' rows built but not copied'}
+        m.textContent=`${n.toLocaleString('en-US')} accounts loaded. Click Copy.`;
+        const ops=box.querySelector('[data-ops]');
+        ops.innerHTML=`<div class="erow"><button type="button" class="qbtn" data-act="copy">Copy CSV (Id, ${F})</button><span class="qmsg" data-cm></span></div><textarea class="csvbox" data-ta readonly hidden></textarea>`;
+        const cm=ops.querySelector('[data-cm]'),ta=ops.querySelector('[data-ta]');
+        const fb=()=>{ta.hidden=false;ta.value=csv;ta.focus();ta.select();cm.textContent='Clipboard blocked: the text is selected below, press Ctrl+C'};
+        ops.querySelector('[data-act="copy"]').onclick=()=>{try{navigator.clipboard.writeText(csv).then(()=>{cm.textContent=`Copied ${n.toLocaleString('en-US')} rows`},fb)}catch(err){fb()}};
       }catch(err){m.textContent='Salesforce query failed: '+(err.code||'')+' '+(err.message||'')}
     };
   }catch(err){say('Salesforce query failed: '+(err.code||'')+' '+(err.message||''))}
