@@ -70,9 +70,8 @@ th{font:600 11px var(--f-mono);color:var(--muted)}
   <section class="note">
     <h2>What this dashboard cannot tell you yet</h2>
     <ul>
-      <li><b>Flow last run date.</b> Salesforce does not expose it in queryable data. The flow check uses last modified date as a proxy. A flow edited 14 months ago may still run daily. To get real run history, enable Flow Event Monitoring (Shield) or add a log write in each flow.</li>
-      <li><b>Account country.</b> 98% of accounts have no Billing Country. Before treating it as a defect, confirm which field is the source of truth for territory and region.</li>
-      <li><b>Sample cap.</b> The flow list is capped at 200 custom active flows, ordered oldest first.</li>
+      <li><b>Flow last run date.</b> Salesforce does not expose it in queryable data. The flow check uses last modified date as a proxy. A flow edited 14 months ago may still run daily. For real run history, enable Flow Event Monitoring (Shield) or add a log write in each flow.</li>
+      <li><b>Territory rules.</b> New US Territory also carries EMEA and Latin America. Japan, India, China and Australia are almost all EMEA (7,606 of 7,633 for Japan), so I treated EMEA as the rest-of-world default and did not flag it. Confirm that is the intended design.</li>
     </ul>
   </section>
   <p class="foot">Queries and the native Salesforce report build spec are in <span class="mono">dashboard/hygiene-checks.md</span>. Counts are a point-in-time snapshot, refresh by re-running them.</p>
@@ -84,10 +83,12 @@ const D=[
  why:'All 24 belong to one departed owner. Named customers such as Amway, Despegar and Mouser sit with nobody accountable. Duplicates are visible: Despegar appears 4 times, Mouser Electronics and Amway several.',
  act:'Reassign to the territory owner, then merge the duplicates.',
  cols:['Account','Owner'],rows:[['Amway','Allanah Roopchand'],['Amway India','Allanah Roopchand'],['Amway Korea','Allanah Roopchand'],['Despegar (x4 variants)','Allanah Roopchand'],['Hanes / Hanes Mill Outlet','Allanah Roopchand'],['Mouser Electronics (x2)','Allanah Roopchand'],['Best Day','Allanah Roopchand'],['ViajaNet','Allanah Roopchand'],['Serasa','Allanah Roopchand'],['+ 9 more','Allanah Roopchand']]},
-{id:'opp-inactive',dom:'Pipeline',t:'Open opportunities owned by an inactive user',n:8,base:614,bl:'open opps',sev:'crit',
- why:'All partner-sourced, all owned by Teague Dufresne, close dates between 2023 and 2024. 7 of 8 have no amount. They inflate stage counts and will never be worked.',
- act:'Close as lost or reassign to the partner manager. Add an inactive-owner guard to the partner deal registration flow.',
- cols:['Opportunity','Stage','Close','Amount'],rows:[['SecuTix','New Partner Source Opp','2024-09-30','20,000'],['YourTango','Deal Approved (Partner Reg)','2024-09-30','blank'],['Etsy','Deal Approved (Partner Reg)','2024-09-30','blank'],['sakscloudservices.com','Deal Approved (Partner Reg)','2024-09-30','blank'],['HYCU','New Partner Source Opp','2024-09-30','blank'],['Agoda','New Partner Source Opp','2024-09-30','blank'],['Surest','Deal Approved (Partner Reg)','2023-07-07','blank'],['Lulu Press / GuidePoint','Deal Approved (Partner Reg)','2024-12-31','blank']]},
+{id:'acc-ae',dom:'Ownership',t:'Assigned AE is an inactive user',n:9098,base:234348,bl:'accounts',sev:'crit',
+ why:'Three departed AEs still sit in Assigned AE. Marylin Albrecht alone holds 7,638 accounts. Anything routed on Assigned AE (notifications, Assigned_AE_Routing, territory reports) points at nobody.',
+ act:'Bulk reassign by territory. Add an offboarding step that clears Assigned AE, and have Assigned_AE_Routing reject inactive users.',
+ cols:['Assigned AE (inactive)','Accounts'],rows:[['Marylin Albrecht','7,638'],['Skyler Mang','857'],['Zach Vick','603']]},
+{id:'opp-inactive',dom:'Pipeline',t:'Open opportunities owned by an inactive user',n:0,base:614,bl:'open opps',sev:'ok',
+ why:'Clean once partner opportunities are excluded. The 8 earlier hits were all Type = Partner Opportunity.',act:'No action.'},
 {id:'opp-past',dom:'Pipeline',t:'Open opportunities past close date',n:47,base:614,bl:'open opps',sev:'crit',
  why:'7.6% of open pipeline has a close date in the past. This distorts forecast, coverage and slippage reporting.',
  act:'Weekly push-or-close review per manager. Consider a validation rule blocking a past close date on open stages.'},
@@ -104,27 +105,40 @@ const D=[
 {id:'usr-30',dom:'Users',t:'Active users with no login in 30 days',n:3,base:130,bl:'active standard users',sev:'info',
  why:'One integration user (last login Nov 2024), the "No Owner" placeholder (Dec 2025) and one C-Level user.',
  act:'Confirm "No Owner" is still needed as a routing owner. Freeze or deactivate the stale integration user.'},
-{id:'lead-inactive',dom:'Ownership',t:'Unconverted leads owned by an inactive user',n:9,base:null,sev:'rev',
- why:'Leads with no live owner never get routed or followed up.',act:'Run lead reassignment to the round-robin queue.'},
-{id:'case-inactive',dom:'Ownership',t:'Open cases owned by an inactive user',n:0,base:null,sev:'ok',why:'Clean.',act:'No action.'},
+{id:'mm-us-emea',dom:'Territory mismatch',t:'Country = United States, territory is not a US territory',n:53,base:69042,bl:'US accounts',sev:'crit',
+ why:'US accounts carrying EMEA or Latin America in New US Territory. Region is correctly North America on the sampled rows, so the territory value is what is wrong. These accounts route to the wrong team.',
+ act:'Re-run territory assignment. Find which flow or import writes EMEA by default (e.g. Set_or_Update_US_State_Field).',
+ cols:['Account','Country','Region','Territory'],rows:[['CAPTAIN TECH USA LLC','United States','North America','EMEA'],['Work at home','United States','North America','EMEA'],['Caterkids Hawaii','United States','North America','EMEA'],['EVA Airways Corp.','United States','North America','EMEA'],['Online-Design','United States','North America','EMEA'],['tresresortwear.com','United States','North America','EMEA']]},
+{id:'mm-ca-emea',dom:'Territory mismatch',t:'Country = Canada, territory = EMEA',n:602,base:4573,bl:'Canadian accounts',sev:'crit',
+ why:'13% of Canadian accounts sit in EMEA territory. Canada accounts otherwise map to US sub-territories (Pacific, New York), so this looks like a default rather than a decision.',
+ act:'Decide the Canada territory rule, then bulk correct.'},
+{id:'mm-nonus-us',dom:'Territory mismatch',t:'Non-US, non-Canada country in a US sub-territory',n:1598,base:null,sev:'rev',
+ why:'Counts the six main US sub-territories only (Midwest, Northeast, Northern California, Pacific, New York, Southeast), so the real figure is higher. Examples: McDonald\'s (UK) in Midwest, IDLogistics (France) in Northeast, Mercer Island Group (Russia) in Pacific.',
+ act:'Likely a US state field applied to the wrong country. Check the territory assignment logic for a country guard.',
+ cols:['Account','Country','Territory'],rows:[['Mercer Island Group','Russia','Pacific'],['Cohere Health','India','Northeast'],['PDP','United Kingdom','Midwest'],["McDonald's",'United Kingdom','Midwest'],['IDLogistics','France','Northeast'],['DriveMedia','France','Southeast'],['Robert Gordon University','United Kingdom','Pacific']]},
+{id:'mm-latam',dom:'Territory mismatch',t:'Latin American country not in Latin America territory',n:22,base:null,sev:'rev',
+ why:'Brazil 18, Mexico 2, Argentina 2 (Colombia clean). Small, but it is a routing error on strategic markets.',act:'Correct and add to the territory assignment test set.'},
+{id:'mm-region',dom:'Territory mismatch',t:'European country with a non-European Region',n:33,base:null,sev:'rev',
+ why:'Checked on 14 European countries. Examples: Germany tagged Other (Sixt Antilles, eddb.io, Timpul), Spain tagged North America (colpal.com).',act:'Fix Region from Country with a formula or flow instead of manual entry.'},
+{id:'mm-nocountry-terr',dom:'Territory mismatch',t:'Territory set to a US sub-territory but Country is blank',n:710,base:46266,bl:'accounts with no country',sev:'rev',
+ why:'A US territory was assigned without a country, so it was derived from something else (state, domain or an import).',act:'Backfill Country from the source that produced the territory.'},
+{id:'acc-country',dom:'Data quality',t:'Accounts with no Country',n:46266,base:234348,bl:'accounts',sev:'rev',
+ why:'Based on Country__c. One in five accounts has no country, which also blocks territory and region logic.',
+ act:'Enrich from website domain or Clay. Make Country required on creation.'},
+{id:'acc-region-nocountry',dom:'Data quality',t:'Region set but Country blank',n:892,base:null,sev:'info',
+ why:'Region exists without the country that should drive it.',act:'Backfill Country, or derive Region from Country only.'},
 {id:'con-noacct',dom:'Data quality',t:'Contacts with no account',n:10300,base:null,sev:'rev',
  why:'Orphan contacts cannot roll up to account reporting, territory or ABM. The scheduled flow that links them is not clearing the backlog.',
  act:'Check the "Schedule Update Contact created with No Account" flow for failures. Backfill by email domain.'},
 {id:'con-noemail',dom:'Data quality',t:'Contacts with no email',n:19840,base:null,sev:'rev',
  why:'Not reachable by marketing or sales sequences.',act:'Decide per source: enrich, archive or flag as non-marketable.'},
-{id:'acc-country',dom:'Data quality',t:'Accounts with no Billing Country',n:230711,base:234348,bl:'accounts',sev:'info',
- why:'98% blank. Likely a different field drives region. This is an architecture question before it is a hygiene one.',
- act:'Document the source-of-truth field for country and region.'},
-{id:'flow-12',dom:'Automation',t:'Custom active flows not modified in 12 months',n:92,base:200,bl:'flows sampled',sev:'rev',
- why:'Proxy for stale automation, not proof it does not run. 140 of 200 are untouched for 6 months. 10 are scheduled flows, which are the highest-risk if the logic is outdated.',
- act:'Tag each flow owner and purpose. Review scheduled flows first. Retire what has no owner.'},
-{id:'flow-smell',dom:'Automation',t:'Flows named as test or non-production, active in production',n:2,base:null,sev:'rev',
- why:'Incorrect_Stage_Notification_NOT_PROD_Setup and Datatable_Configuration_Wizard5 are active.',
- act:'Deactivate or rename. Enforce a naming convention.',
- cols:['Flow','Last modified'],rows:[['Incorrect_Stage_Notification_NOT_PROD_Setup','2025-06-19'],['Datatable_Configuration_Wizard5','2024-09-11']]},
+{id:'flow-12',dom:'Automation',t:'Custom active flows not modified in 12 months',n:92,base:230,bl:'custom active flows',sev:'rev',
+ why:'Full set of 230 custom active flows. Last modified date is a proxy, not proof a flow does not run. 9 of the 92 are scheduled flows, the highest risk if the logic is outdated (e.g. Move_to_3_Ex_once_Churn_Date_is_passed, last edited Oct 2024).',
+ act:'Tag each flow owner and purpose. Review the 9 scheduled flows first. Retire what has no owner.'},
 {id:'flow-paused',dom:'Automation',t:'Paused flow interviews older than 30 days',n:1,base:48,bl:'paused interviews',sev:'info',
  why:'48 interviews are currently paused, only 1 is older than 30 days.',act:'Delete the stale interview from Paused Flow Interviews.'}
 ];
+
 const fmt=n=>n.toLocaleString('en-US');
 const sevLabel={crit:'CRITICAL',rev:'REVIEW',info:'WATCH',ok:'CLEAN'};
 const el=(h)=>{const t=document.createElement('template');t.innerHTML=h.trim();return t.content.firstChild};
