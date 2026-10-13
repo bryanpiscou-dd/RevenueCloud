@@ -44,6 +44,13 @@ button:focus-visible,summary:focus-visible{outline:3px solid var(--dream);outlin
 .card p{margin:0;color:var(--muted);font-size:13px}
 .card .act{color:var(--fg);font-size:13px}
 .act b{font-weight:600}
+.qbtn{align-self:flex-start;font:600 12px var(--f-body);background:var(--chip-on);color:var(--chip-on-fg);border:0;border-radius:8px;padding:8px 14px;cursor:pointer}
+.qbox{display:flex;flex-direction:column;gap:8px}
+.qtabs{display:flex;gap:6px}
+.qtabs button{font:600 11px var(--f-mono);letter-spacing:.05em;border:1px solid var(--line);background:var(--chip);color:var(--fg);border-radius:999px;padding:4px 10px;cursor:pointer}
+.qtabs button[aria-pressed="true"]{background:var(--chip-on);color:var(--chip-on-fg);border-color:var(--chip-on)}
+.qbox pre{margin:0;padding:10px;border-radius:8px;background:var(--bg);border:1px solid var(--line);font:400 12px/1.5 var(--f-mono);white-space:pre-wrap;word-break:break-word;color:var(--fg)}
+.qmsg{font:400 11px var(--f-mono);color:var(--muted)}
 details{border-top:1px solid var(--line);padding-top:8px}
 summary{cursor:pointer;font:600 12px var(--f-mono);letter-spacing:.05em}
 .tbl{overflow-x:auto;margin-top:8px}
@@ -79,70 +86,67 @@ th{font:600 11px var(--f-mono);color:var(--muted)}
 
 <script>
 const D=[
-{id:'acc-inactive',dom:'Ownership',t:'Accounts owned by an inactive user',n:24,base:234348,bl:'accounts',sev:'crit',
+{id:'acc-inactive',q:{"o": "Account", "f": "Id, Name, Country__c, Owner.Name", "w": "Owner.IsActive = false"},dom:'Ownership',t:'Accounts owned by an inactive user',n:24,base:234348,bl:'accounts',sev:'crit',
  why:'All 24 belong to one departed owner. Named customers such as Amway, Despegar and Mouser sit with nobody accountable. Duplicates are visible: Despegar appears 4 times, Mouser Electronics and Amway several.',
  act:'Reassign to the territory owner, then merge the duplicates.',
  cols:['Account','Owner'],rows:[['Amway','Allanah Roopchand'],['Amway India','Allanah Roopchand'],['Amway Korea','Allanah Roopchand'],['Despegar (x4 variants)','Allanah Roopchand'],['Hanes / Hanes Mill Outlet','Allanah Roopchand'],['Mouser Electronics (x2)','Allanah Roopchand'],['Best Day','Allanah Roopchand'],['ViajaNet','Allanah Roopchand'],['Serasa','Allanah Roopchand'],['+ 9 more','Allanah Roopchand']]},
-{id:'acc-ae',dom:'Ownership',t:'Assigned AE is an inactive user',n:9098,base:234348,bl:'accounts',sev:'crit',
+{id:'acc-ae',q:{"o": "Account", "f": "Id, Name, Country__c, Assigned_AE__r.Name, Owner.Name", "w": "Assigned_AE__c != null AND Assigned_AE__r.IsActive = false"},dom:'Ownership',t:'Assigned AE is an inactive user',n:9098,base:234348,bl:'accounts',sev:'crit',
  why:'Three departed AEs still sit in Assigned AE. Marylin Albrecht alone holds 7,638 accounts. Anything routed on Assigned AE (notifications, Assigned_AE_Routing, territory reports) points at nobody.',
  act:'Bulk reassign by territory. Add an offboarding step that clears Assigned AE, and have Assigned_AE_Routing reject inactive users.',
  cols:['Assigned AE (inactive)','Accounts'],rows:[['Marylin Albrecht','7,638'],['Skyler Mang','857'],['Zach Vick','603']]},
-{id:'opp-inactive',dom:'Pipeline',t:'Open opportunities owned by an inactive user',n:0,base:614,bl:'open opps',sev:'ok',
+{id:'opp-inactive',q:{"o": "Opportunity", "f": "Id, Name, StageName, Amount, CloseDate, LastActivityDate, Type, Owner.Name", "w": "IsClosed = false AND Owner.IsActive = false AND Type != 'Partner Opportunity'"},dom:'Pipeline',t:'Open opportunities owned by an inactive user',n:0,base:614,bl:'open opps',sev:'ok',
  why:'Clean once partner opportunities are excluded. The 8 earlier hits were all Type = Partner Opportunity.',act:'No action.'},
-{id:'opp-past',dom:'Pipeline',t:'Open opportunities past close date',n:47,base:614,bl:'open opps',sev:'crit',
+{id:'opp-past',q:{"o": "Opportunity", "f": "Id, Name, StageName, Amount, CloseDate, LastActivityDate, Type, Owner.Name", "w": "IsClosed = false AND CloseDate < TODAY"},dom:'Pipeline',t:'Open opportunities past close date',n:47,base:614,bl:'open opps',sev:'crit',
  why:'7.6% of open pipeline has a close date in the past. This distorts forecast, coverage and slippage reporting.',
  act:'Weekly push-or-close review per manager. Consider a validation rule blocking a past close date on open stages.'},
-{id:'opp-stale',dom:'Pipeline',t:'Open opportunities with no activity in 30 days',n:166,base:614,bl:'open opps',sev:'rev',
+{id:'opp-stale',q:{"o": "Opportunity", "f": "Id, Name, StageName, Amount, CloseDate, LastActivityDate, Type, Owner.Name", "w": "IsClosed = false AND LastActivityDate < LAST_N_DAYS:30"},dom:'Pipeline',t:'Open opportunities with no activity in 30 days',n:166,base:614,bl:'open opps',sev:'rev',
  why:'27% of open pipeline has had no logged activity for 30 days or more. Either work is not logged (Outreach, Gong sync gap) or the deals are dead.',
  act:'Segment by stage. Late-stage and no activity is the priority list.'},
-{id:'opp-amount',dom:'Pipeline',t:'Open opportunities with blank or zero amount',n:94,base:614,bl:'open opps',sev:'rev',
+{id:'opp-amount',q:{"o": "Opportunity", "f": "Id, Name, StageName, Amount, CloseDate, LastActivityDate, Type, Owner.Name", "w": "IsClosed = false AND (Amount = null OR Amount = 0)"},dom:'Pipeline',t:'Open opportunities with blank or zero amount',n:94,base:614,bl:'open opps',sev:'rev',
  why:'15% of open pipeline has no value, so it is invisible in every amount-based report.',
  act:'Make amount required past the qualification stage.'},
-{id:'usr-7',dom:'Users',t:'Active users with no login in 7 days',n:9,base:130,bl:'active standard users',sev:'rev',
+{id:'usr-7',q:{"o": "User", "f": "Id, Name, Profile.Name, LastLoginDate, UserType", "w": "IsActive = true AND UserType = 'Standard' AND (LastLoginDate < LAST_N_DAYS:7 OR LastLoginDate = null)"},dom:'Users',t:'Active users with no login in 7 days',n:9,base:130,bl:'active standard users',sev:'rev',
  why:'4 of the 9 are integration or service users (expected). 5 are people or placeholders. 7 days is a noisy threshold, 30 days leaves 3.',
  act:'Review the 5 human rows for license reclaim. Exclude API-only profiles from this check.',
  cols:['User','Profile','Last login'],rows:[['Integration Planhat','API Only Integrations','never'],['Sécurité Utilisateur','Analytics Cloud Security','never'],['Common Room','API Profile','never'],['Intégration Utilisateur','Analytics Cloud Integration','2024-11-21'],['No Owner','Standard Platform User','2025-12-15'],['Gilles Walbrou','C-Level','2026-09-11'],['Marine Picard','Marketing & Growth','2026-09-23'],['Wen Lee','Legal','2026-10-01'],['Leslie Ros','Standard Platform User','2026-10-02']]},
-{id:'usr-30',dom:'Users',t:'Active users with no login in 30 days',n:3,base:130,bl:'active standard users',sev:'info',
+{id:'usr-30',q:{"o": "User", "f": "Id, Name, Profile.Name, LastLoginDate, UserType", "w": "IsActive = true AND UserType = 'Standard' AND LastLoginDate < LAST_N_DAYS:30"},dom:'Users',t:'Active users with no login in 30 days',n:3,base:130,bl:'active standard users',sev:'info',
  why:'One integration user (last login Nov 2024), the "No Owner" placeholder (Dec 2025) and one C-Level user.',
  act:'Confirm "No Owner" is still needed as a routing owner. Freeze or deactivate the stale integration user.'},
-{id:'mm-us-emea',dom:'Territory mismatch',t:'Country = United States, territory is not a US territory',n:53,base:69042,bl:'US accounts',sev:'crit',
+{id:'mm-us-emea',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c = 'United States' AND New_US_Territory__c IN ('EMEA','Latin America')"},dom:'Territory mismatch',t:'Country = United States, territory is not a US territory',n:53,base:69042,bl:'US accounts',sev:'crit',
  why:'US accounts carrying EMEA or Latin America in New US Territory. Region is correctly North America on the sampled rows, so the territory value is what is wrong. These accounts route to the wrong team.',
- act:'Re-run territory assignment. Find which flow or import writes EMEA by default (see the US State check below, and Set_or_Update_US_State_Field).',
+ act:'39 of 53 have no US State, see the empty US State check. Fix the state, then re-run territory assignment.',
  cols:['Account','Country','Region','Territory'],rows:[['CAPTAIN TECH USA LLC','United States','North America','EMEA'],['Work at home','United States','North America','EMEA'],['Caterkids Hawaii','United States','North America','EMEA'],['EVA Airways Corp.','United States','North America','EMEA'],['Online-Design','United States','North America','EMEA'],['tresresortwear.com','United States','North America','EMEA']]},
-{id:'mm-us-nostate',dom:'Territory mismatch',t:'Country = United States, US State is empty',n:39,base:69042,bl:'US accounts',sev:'crit',
- why:'No state means no territory, and the territory falls back to EMEA. All 39 are among the 53 US accounts sitting in EMEA, so this is the root cause of most of that mismatch. Billing State is empty on all of them too, so there is nothing to derive it from.',
- act:'Backfill state manually or via enrichment, then re-run territory assignment. Make US State required when Country = United States.',
- cols:['Account','Region','Territory','Billing State'],rows:[['CAPTAIN TECH USA LLC','North America','EMEA','blank'],['Work at home','North America','EMEA','blank'],['Caterkids Hawaii','North America','EMEA','blank'],['EVA Airways Corp.','North America','EMEA','blank'],['Online-Design','North America','EMEA','blank'],['tresresortwear.com','North America','EMEA','blank'],['cutradition.com','North America','EMEA','blank'],['alhemyarianews.com','North America','EMEA','blank']]},
-{id:'mm-state-nonus',dom:'Territory mismatch',t:'US State filled on a non-US, non-Canada account',n:1927,base:null,sev:'rev',
- why:'5,898 non-US accounts carry a US State. 3,971 are Canada (assumed provinces, by design). The remaining 1,927 are mostly India (271), China (216), UK (146), Russia (105) and Brazil (98), and explain why they land in US sub-territories.',
+{id:'mm-us-nostate',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('United States','Canada') AND US_State__c = null"},dom:'Territory mismatch',t:'Country = United States or Canada, US State is empty',n:641,base:73615,bl:'US and Canada accounts',sev:'crit',
+ why:'39 US and 602 Canadian accounts have no state or province (US State also holds Canadian provinces). No state means no territory, so the territory falls back to EMEA: 601 of the 602 Canadian accounts and all 39 US ones are in EMEA. This is the root cause of both the US and the Canada territory mismatches. Billing State is empty on the US ones, so there is nothing to derive it from.',
+ act:'Backfill state or province via enrichment, then re-run territory assignment. Make US State required when Country is United States or Canada.',
+ cols:['Account','Country','Region','Territory','State'],rows:[['CAPTAIN TECH USA LLC','United States','North America','EMEA','blank'],['Work at home','United States','North America','EMEA','blank'],['Caterkids Hawaii','United States','North America','EMEA','blank'],['EVA Airways Corp.','United States','North America','EMEA','blank'],['Online-Design','United States','North America','EMEA','blank'],['+ 635 more (use the SOQL button)','US / Canada','','EMEA','blank']]},
+{id:'mm-state-nonus',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c NOT IN ('United States','Canada') AND Country__c != null AND US_State__c != null"},dom:'Territory mismatch',t:'US State filled on a non-US, non-Canada account',n:1927,base:null,sev:'rev',
+ why:'5,898 non-US accounts carry a US State. 3,971 are Canada (provinces, by design). The remaining 1,927 are mostly India (271), China (216), UK (146), Russia (105) and Brazil (98), and explain why they land in US sub-territories.',
  act:'Clear US State where Country is not US or Canada, and add a flow guard.'},
-{id:'mm-ca-emea',dom:'Territory mismatch',t:'Country = Canada, territory = EMEA',n:602,base:4573,bl:'Canadian accounts',sev:'crit',
- why:'13% of Canadian accounts sit in EMEA territory. Canada accounts otherwise map to US sub-territories (Pacific, New York), so this looks like a default rather than a decision.',
- act:'Decide the Canada territory rule, then bulk correct.'},
-{id:'mm-nonus-us',dom:'Territory mismatch',t:'Non-US, non-Canada country in a US sub-territory',n:1598,base:null,sev:'rev',
+{id:'mm-nonus-us',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c NOT IN ('United States','Canada') AND Country__c != null AND New_US_Territory__c IN ('Midwest','Northeast','Northern California','Pacific','New York','Southeast')"},dom:'Territory mismatch',t:'Non-US, non-Canada country in a US sub-territory',n:1598,base:null,sev:'rev',
  why:'Counts the six main US sub-territories only (Midwest, Northeast, Northern California, Pacific, New York, Southeast), so the real figure is higher. Examples: McDonald\'s (UK) in Midwest, IDLogistics (France) in Northeast, Mercer Island Group (Russia) in Pacific.',
  act:'Likely a US state field applied to the wrong country. Check the territory assignment logic for a country guard.',
  cols:['Account','Country','Territory'],rows:[['Mercer Island Group','Russia','Pacific'],['Cohere Health','India','Northeast'],['PDP','United Kingdom','Midwest'],["McDonald's",'United Kingdom','Midwest'],['IDLogistics','France','Northeast'],['DriveMedia','France','Southeast'],['Robert Gordon University','United Kingdom','Pacific']]},
-{id:'mm-latam',dom:'Territory mismatch',t:'Latin American country not in Latin America territory',n:22,base:null,sev:'rev',
+{id:'mm-latam',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('Brazil','Mexico','Argentina','Colombia') AND New_US_Territory__c != 'Latin America'"},dom:'Territory mismatch',t:'Latin American country not in Latin America territory',n:22,base:null,sev:'rev',
  why:'Brazil 18, Mexico 2, Argentina 2 (Colombia clean). Small, but it is a routing error on strategic markets.',act:'Correct and add to the territory assignment test set.'},
-{id:'mm-region',dom:'Territory mismatch',t:'European country with a non-European Region',n:33,base:null,sev:'rev',
+{id:'mm-region',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('France','Germany','United Kingdom','Spain','Italy','Netherlands','Poland','Sweden','Switzerland','Belgium','Greece','Turkey','Russia','Ukraine') AND Region__c IN ('North America','Latin America','Asia Pacific','Oceania')"},dom:'Territory mismatch',t:'European country with a non-European Region',n:33,base:null,sev:'rev',
  why:'Checked on 14 European countries. Examples: Germany tagged Other (Sixt Antilles, eddb.io, Timpul), Spain tagged North America (colpal.com).',act:'Fix Region from Country with a formula or flow instead of manual entry.'},
-{id:'mm-nocountry-terr',dom:'Territory mismatch',t:'Territory set to a US sub-territory but Country is blank',n:710,base:46266,bl:'accounts with no country',sev:'rev',
+{id:'mm-nocountry-terr',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c = null AND New_US_Territory__c IN ('Midwest','Northeast','Northern California','Pacific','New York','Southeast')"},dom:'Territory mismatch',t:'Territory set to a US sub-territory but Country is blank',n:710,base:46266,bl:'accounts with no country',sev:'rev',
  why:'A US territory was assigned without a country, so it was derived from something else (state, domain or an import).',act:'Backfill Country from the source that produced the territory.'},
-{id:'acc-country',dom:'Data quality',t:'Accounts with no Country',n:46266,base:234348,bl:'accounts',sev:'rev',
+{id:'acc-country',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c = null"},dom:'Data quality',t:'Accounts with no Country',n:46266,base:234348,bl:'accounts',sev:'rev',
  why:'Based on Country__c. One in five accounts has no country, which also blocks territory and region logic.',
  act:'Enrich from website domain or Clay. Make Country required on creation.'},
-{id:'acc-region-nocountry',dom:'Data quality',t:'Region set but Country blank',n:892,base:null,sev:'info',
+{id:'acc-region-nocountry',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c = null AND Region__c != null"},dom:'Data quality',t:'Region set but Country blank',n:892,base:null,sev:'info',
  why:'Region exists without the country that should drive it.',act:'Backfill Country, or derive Region from Country only.'},
-{id:'con-noacct',dom:'Data quality',t:'Contacts with no account',n:10300,base:null,sev:'rev',
+{id:'con-noacct',q:{"o": "Contact", "f": "Id, Name, Email, CreatedDate, Owner.Name", "w": "AccountId = null"},dom:'Data quality',t:'Contacts with no account',n:10300,base:null,sev:'rev',
  why:'Orphan contacts cannot roll up to account reporting, territory or ABM. The scheduled flow that links them is not clearing the backlog.',
  act:'Check the "Schedule Update Contact created with No Account" flow for failures. Backfill by email domain.'},
-{id:'con-noemail',dom:'Data quality',t:'Contacts with no email',n:19840,base:null,sev:'rev',
+{id:'con-noemail',q:{"o": "Contact", "f": "Id, Name, AccountId, CreatedDate, Owner.Name", "w": "Email = null"},dom:'Data quality',t:'Contacts with no email',n:19840,base:null,sev:'rev',
  why:'Not reachable by marketing or sales sequences.',act:'Decide per source: enrich, archive or flag as non-marketable.'},
-{id:'flow-12',dom:'Automation',t:'Custom active flows not modified in 12 months',n:92,base:230,bl:'custom active flows',sev:'rev',
+{id:'flow-12',q:{"o": "FlowDefinitionView", "f": "ApiName, Label, ProcessType, TriggerType, LastModifiedDate", "w": "IsActive = true AND NamespacePrefix = null AND LastModifiedDate < {D365}"},dom:'Automation',t:'Custom active flows not modified in 12 months',n:92,base:230,bl:'custom active flows',sev:'rev',
  why:'Full set of 230 custom active flows. Last modified date is a proxy, not proof a flow does not run. 9 of the 92 are scheduled flows, the highest risk if the logic is outdated (e.g. Move_to_3_Ex_once_Churn_Date_is_passed, last edited Oct 2024).',
  act:'Tag each flow owner and purpose. Review the 9 scheduled flows first. Retire what has no owner.'},
-{id:'flow-paused',dom:'Automation',t:'Paused flow interviews older than 30 days',n:1,base:48,bl:'paused interviews',sev:'info',
+{id:'flow-paused',q:{"o": "FlowInterview", "f": "Id, Name, InterviewLabel, CurrentElement, CreatedDate", "w": "CreatedDate < LAST_N_DAYS:30"},dom:'Automation',t:'Paused flow interviews older than 30 days',n:1,base:48,bl:'paused interviews',sev:'info',
  why:'48 interviews are currently paused, only 1 is older than 30 days.',act:'Delete the stale interview from Paused Flow Interviews.'}
 ];
 
@@ -162,12 +166,35 @@ function card(d){
   return el(`<article class="card"><div class="top"><div><div class="mono dom">${d.dom}</div><h3>${d.t}</h3></div><span class="pill ${d.sev}">${sevLabel[d.sev]}</span></div>
   <div class="num"><b>${fmt(d.n)}</b><span>${ptxt}</span></div>
   ${pct!==null?`<div class="bar ${d.sev==='crit'?'crit':''}"><i style="width:${Math.min(pct,100)}%"></i></div>`:''}
-  <p>${d.why}</p><p class="act"><b>Action:</b> ${d.act}</p>${drill}</article>`);
+  <p>${d.why}</p><p class="act"><b>Action:</b> ${d.act}</p>${drill}${d.q?`<button type="button" class="qbtn" data-q="${d.id}">Generate SOQL</button><div class="qbox" data-box="${d.id}" hidden></div>`:''}</article>`);
 }
 function draw(){
   fb.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.d===cur));
   grid.replaceChildren(...D.filter(d=>cur==='All'||d.dom===cur).sort((a,b)=>['crit','rev','info','ok'].indexOf(a.sev)-['crit','rev','info','ok'].indexOf(b.sev)).map(card));
 }
+const d365=()=>new Date(Date.now()-365*864e5).toISOString().slice(0,10)+'T00:00:00Z';
+function soql(d,mode){
+  const w=d.q.w.replace('{D365}',d365());
+  return mode==='count'?`SELECT COUNT(Id) c FROM ${d.q.o} WHERE ${w}`:`SELECT ${d.q.f}\nFROM ${d.q.o}\nWHERE ${w}\nLIMIT 2000`;
+}
+function showQ(d,box,mode){
+  const text=soql(d,mode);
+  box.hidden=false;
+  box.innerHTML=`<div class="qtabs"><button type="button" data-m="list" aria-pressed="${mode==='list'}">RECORDS</button><button type="button" data-m="count" aria-pressed="${mode==='count'}">COUNT</button></div><pre></pre><div><button type="button" class="qbtn" data-copy>Copy</button> <span class="qmsg"></span></div>`;
+  const pre=box.querySelector('pre');pre.textContent=text;
+  box.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>showQ(d,box,b.dataset.m));
+  box.querySelector('[data-copy]').onclick=()=>{
+    const msg=box.querySelector('.qmsg');
+    const sel=()=>{const r=document.createRange();r.selectNodeContents(pre);const g=getSelection();g.removeAllRanges();g.addRange(r);msg.textContent='Press Ctrl+C to copy'};
+    try{navigator.clipboard.writeText(text).then(()=>{msg.textContent='Copied. Paste in Developer Console > Query Editor, or Workbench.'},sel)}catch(e){sel()}
+  };
+}
+grid.addEventListener('click',e=>{
+  const b=e.target.closest('[data-q]');if(!b)return;
+  const d=D.find(x=>x.id===b.dataset.q),box=grid.querySelector(`[data-box="${d.id}"]`);
+  if(!box.hidden){box.hidden=true;return}
+  showQ(d,box,'list');
+});
 doms.forEach(d=>{const b=el(`<button type="button" data-d="${d}">${d}</button>`);b.onclick=()=>{cur=d;draw()};fb.append(b)});
 draw();
 </script>
