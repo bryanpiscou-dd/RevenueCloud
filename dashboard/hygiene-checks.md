@@ -37,6 +37,7 @@ Each tile in the dashboard also has a Generate SOQL button (records list and cou
 ## Live refresh and enrichment
 - The dashboard page calls the viewer's Salesforce connector (`soqlQuery`) on open and every 24h while open. Viewers without the connector see the last published snapshot (13 Oct 2026).
 - Commentary text on each tile is a snapshot. Counts, percentages and severity update live.
+- "Reassign owner" on the inactive-owner and inactive Assigned AE tiles builds a Data Loader CSV (Id, OwnerId or Assigned_AE__c) per departed user. It does not write to Salesforce.
 - "Enrich with Clay" runs the Clay Company Address function (one credit per account) on up to 50 accounts from a check and proposes Country__c, State_Region__c, City__c and BillingPostalCode in one CSV, with an option to fill empty fields only (US_State__c optional, off by default because it is derived from State_Region__c). It never writes to Salesforce: load the copied CSV with Data Loader after review.
 
 ## Known limits

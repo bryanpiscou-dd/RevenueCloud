@@ -95,11 +95,11 @@ th{font:600 11px var(--f-mono);color:var(--muted)}
 
 <script>
 const D=[
-{id:'acc-inactive',q:{"o": "Account", "f": "Id, Name, Country__c, Owner.Name", "w": "Owner.IsActive = false"},dom:'Ownership',t:'Accounts owned by an inactive user',n:24,base:234348,bl:'accounts',sev:'crit',
+{id:'acc-inactive',own:'OwnerId',q:{"o": "Account", "f": "Id, Name, Country__c, Owner.Name", "w": "Owner.IsActive = false"},dom:'Ownership',t:'Accounts owned by an inactive user',n:24,base:234348,bl:'accounts',sev:'crit',
  why:'All 24 belong to one departed owner. Named customers such as Amway, Despegar and Mouser sit with nobody accountable. Duplicates are visible: Despegar appears 4 times, Mouser Electronics and Amway several.',
  act:'Reassign to the territory owner, then merge the duplicates.',
  cols:['Account','Owner'],rows:[['Amway','Allanah Roopchand'],['Amway India','Allanah Roopchand'],['Amway Korea','Allanah Roopchand'],['Despegar (x4 variants)','Allanah Roopchand'],['Hanes / Hanes Mill Outlet','Allanah Roopchand'],['Mouser Electronics (x2)','Allanah Roopchand'],['Best Day','Allanah Roopchand'],['ViajaNet','Allanah Roopchand'],['Serasa','Allanah Roopchand'],['+ 9 more','Allanah Roopchand']]},
-{id:'acc-ae',q:{"o": "Account", "f": "Id, Name, Country__c, Assigned_AE__r.Name, Owner.Name", "w": "Assigned_AE__c != null AND Assigned_AE__r.IsActive = false"},dom:'Ownership',t:'Assigned AE is an inactive user',n:9098,base:234348,bl:'accounts',sev:'crit',
+{id:'acc-ae',own:'Assigned_AE__c',q:{"o": "Account", "f": "Id, Name, Country__c, Assigned_AE__r.Name, Owner.Name", "w": "Assigned_AE__c != null AND Assigned_AE__r.IsActive = false"},dom:'Ownership',t:'Assigned AE is an inactive user',n:9098,base:234348,bl:'accounts',sev:'crit',
  why:'Three departed AEs still sit in Assigned AE. Marylin Albrecht alone holds 7,638 accounts. Anything routed on Assigned AE (notifications, Assigned_AE_Routing, territory reports) points at nobody.',
  act:'Bulk reassign by territory. Add an offboarding step that clears Assigned AE, and have Assigned_AE_Routing reject inactive users.',
  cols:['Assigned AE (inactive)','Accounts'],rows:[['Marylin Albrecht','7,638'],['Skyler Mang','857'],['Zach Vick','603']]},
@@ -206,7 +206,7 @@ function card(d){
   const drill=d.rows?`<details><summary>SHOW RECORDS</summary><div class="tbl"><table><thead><tr>${d.cols.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${d.rows.map(r=>`<tr>${r.map(x=>`<td>${x}</td>`).join('')}</tr>`).join('')}</tbody></table></div></details>`:'';
   return el(`<article class="card" data-id="${d.id}"><div class="top"><div><div class="mono dom">${d.dom}</div><h3>${d.t}</h3></div><span class="pill ${d.sev}">${sevLabel[d.sev]}</span></div>
   <div class="num">${numHTML(d)}</div><div class="barw">${barHTML(d)}</div>
-  <p>${d.why}</p><p class="act"><b>Action:</b> ${d.act}</p>${drill}<div class="btns">${d.q?`<button type="button" class="qbtn" data-q="${d.id}">Generate SOQL</button>`:''}${d.enr?`<button type="button" class="qbtn ebtn" data-e="${d.id}">Enrich with Clay</button>`:''}${d.fix?`<button type="button" class="qbtn ebtn" data-fix="${d.id}">Build fixed CSV</button>`:''}</div><div class="qbox" data-box="${d.id}" hidden></div><div class="ebox" data-ebox="${d.id}" hidden></div></article>`);
+  <p>${d.why}</p><p class="act"><b>Action:</b> ${d.act}</p>${drill}<div class="btns">${d.q?`<button type="button" class="qbtn" data-q="${d.id}">Generate SOQL</button>`:''}${d.enr?`<button type="button" class="qbtn ebtn" data-e="${d.id}">Enrich with Clay</button>`:''}${d.own?`<button type="button" class="qbtn ebtn" data-o="${d.id}">Reassign owner</button>`:''}${d.fix?`<button type="button" class="qbtn ebtn" data-fix="${d.id}">Build fixed CSV</button>`:''}</div><div class="qbox" data-box="${d.id}" hidden></div><div class="ebox" data-ebox="${d.id}" hidden></div></article>`);
 }
 function refreshCard(d){
   const a=grid.querySelector(`[data-id="${d.id}"]`);if(!a)return;
@@ -409,6 +409,52 @@ grid.addEventListener('click',async e=>{
     const csv=['Id,BillingPostalCode',...rows.map(x=>x.map(csvq).join(','))].join('\n');
     box.innerHTML=`<p class="qmsg">${rows.length} accounts. Example: ${esc(rows[0]?rows[0][1]:'')}. Only BillingPostalCode is written, and only 3 or 4 digit US values are padded to 5.</p><div class="erow"><button type="button" class="qbtn" data-copy>Copy CSV for Data Loader</button><span class="qmsg" data-m></span></div>`;
     box.querySelector('[data-copy]').onclick=()=>{const m=box.querySelector('[data-m]');try{navigator.clipboard.writeText(csv).then(()=>{m.textContent='Copied '+rows.length+' rows'},()=>{m.textContent='Clipboard blocked'})}catch(err){m.textContent='Clipboard blocked'}};
+  }catch(err){say('Salesforce query failed: '+(err.code||'')+' '+(err.message||''))}
+});
+
+/* ---------- owner reassignment (builds a Data Loader CSV, no write) ---------- */
+const OWN_FLOWS={OwnerId:'Update_All_Contacts_Ownership_when_Acc_Owner_is_changed, Update_Previous_Owner_on_Change, Update_Owner_Assigned_Date',Assigned_AE__c:'Assigned_AE_Routing'};
+grid.addEventListener('click',async e=>{
+  const b=e.target.closest('[data-o]');if(!b)return;
+  const d=D.find(x=>x.id===b.dataset.o),box=grid.querySelector(`[data-ebox="${d.id}"]`);
+  if(!box.hidden){box.hidden=true;return}
+  box.hidden=false;
+  const F=d.own,isOwner=F==='OwnerId';
+  const say=t=>{box.innerHTML=`<p class="qmsg">${t}</p>`};
+  if(!MCP){say('Open this dashboard with the Salesforce connector to reassign owners.');return}
+  say('Loading departed users and candidate owners…');
+  try{
+    const g=await sfq(isOwner?`SELECT OwnerId, Owner.Name n, COUNT(Id) c FROM Account WHERE Owner.IsActive = false GROUP BY OwnerId, Owner.Name`:`SELECT Assigned_AE__c, Assigned_AE__r.Name n, COUNT(Id) c FROM Account WHERE Assigned_AE__c != null AND Assigned_AE__r.IsActive = false GROUP BY Assigned_AE__c, Assigned_AE__r.Name`);
+    const u=await sfq(`SELECT Id, Name, Profile.Name FROM User WHERE IsActive = true AND UserType = 'Standard' AND Profile.Name IN ('AE','AM','Sales Manager','AM Manager') ORDER BY Name`);
+    const gone=(g.records||[]).map(r=>({id:r[F],name:r.n||r.Name||r.id,c:Number(r.c!==undefined?r.c:r.expr0)})).sort((x,y)=>y.c-x.c);
+    const opts=(u.records||[]).map(r=>`<option value="${esc(r.Id)}">${esc(r.Name)} (${esc(r.Profile&&r.Profile.Name)})</option>`).join('');
+    if(!gone.length){say('Nothing to reassign.');return}
+    box.innerHTML=`<b style="font-size:13px">Reassign ${F} (${gone.reduce((a,x)=>a+x.c,0).toLocaleString('en-US')} accounts)</b>
+    <p class="qmsg" style="font-size:12px">Pick a new owner for each departed user. This page only builds the Data Loader CSV (Id, ${F}). It does not change Salesforce.</p>
+    <div class="tbl"><table><thead><tr><th>Departed user</th><th>Accounts</th><th>New ${isOwner?'owner':'Assigned AE'}</th></tr></thead><tbody>${gone.map((x,i)=>`<tr><td>${esc(x.name)}</td><td>${x.c.toLocaleString('en-US')}</td><td><select id="ow-${d.id}-${i}" data-i="${i}"><option value="">Skip</option>${opts}</select></td></tr>`).join('')}</tbody></table></div>
+    <p class="qmsg" style="font-size:12px"><b>Automation that probably fires on this change:</b> ${OWN_FLOWS[F]}. Test 25 accounts in a sandbox first, and load with Data Loader at batch size 200.</p>
+    <div class="erow"><button type="button" class="qbtn" data-act="build">Build CSV</button><span class="qmsg" data-m></span></div>`;
+    box.querySelector('[data-act="build"]').onclick=async()=>{
+      const m=box.querySelector('[data-m]');
+      const picks=gone.map((x,i)=>({x,to:document.getElementById(`ow-${d.id}-${i}`).value})).filter(r=>r.to);
+      if(!picks.length){m.textContent='Pick at least one new owner';return}
+      const lines=[`Id,${F}`];let n=0;
+      try{
+        for(const {x,to} of picks){
+          let last='';
+          for(let page=0;page<10;page++){
+            m.textContent=`Loading ${x.name}… ${n} accounts so far`;
+            const p=await sfq(`SELECT Id FROM Account WHERE ${F} = '${x.id}' AND Id > '${last}' ORDER BY Id LIMIT 2000`);
+            const rs=p.records||[];
+            rs.forEach(r=>{lines.push(`"${r.Id}","${to}"`);n++});
+            if(rs.length<2000)break;
+            last=rs[rs.length-1].Id;
+          }
+        }
+        const csv=lines.join('\n');
+        try{await navigator.clipboard.writeText(csv);m.textContent=`Copied ${n.toLocaleString('en-US')} rows (Id, ${F})`}catch(err){m.textContent='Clipboard blocked: '+n+' rows built but not copied'}
+      }catch(err){m.textContent='Salesforce query failed: '+(err.code||'')+' '+(err.message||'')}
+    };
   }catch(err){say('Salesforce query failed: '+(err.code||'')+' '+(err.message||''))}
 });
 (async()=>{
