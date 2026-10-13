@@ -175,7 +175,7 @@ function draw(){
 const d365=()=>new Date(Date.now()-365*864e5).toISOString().slice(0,10)+'T00:00:00Z';
 function soql(d,mode){
   const w=d.q.w.replace('{D365}',d365());
-  return mode==='count'?`SELECT COUNT(Id) c FROM ${d.q.o} WHERE ${w}`:`SELECT ${d.q.f}\nFROM ${d.q.o}\nWHERE ${w}\nLIMIT 2000`;
+  return mode==='count'?`SELECT COUNT(Id) c FROM ${d.q.o} WHERE ${w}`:`SELECT ${d.q.f}\nFROM ${d.q.o}\nWHERE ${w}`;
 }
 function showQ(d,box,mode){
   const text=soql(d,mode);
