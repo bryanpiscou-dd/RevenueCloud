@@ -15,6 +15,8 @@ SOQL behind each tile of `salesforce-hygiene-dashboard.html`. Re-run to refresh.
 | Accounts, Assigned AE inactive | `SELECT Assigned_AE__r.Name, COUNT(Id) FROM Account WHERE Assigned_AE__c != null AND Assigned_AE__r.IsActive = false GROUP BY Assigned_AE__r.Name` (do not use `Assigned_AE__r.IsActive = false` alone, it also matches null) | Accounts |
 | Accounts, no Country | `... FROM Account WHERE Country__c = null` | Accounts |
 | Mismatch: US country, non-US territory | `... WHERE Country__c = 'United States' AND New_US_Territory__c IN ('EMEA','Latin America')` | Accounts |
+| Mismatch: US country, US State empty | `... WHERE Country__c = 'United States' AND US_State__c = null` | Accounts |
+| Mismatch: US State on non-US/CA country | `... WHERE Country__c NOT IN ('United States','Canada') AND Country__c != null AND US_State__c != null` | Accounts |
 | Mismatch: Canada in EMEA | `... WHERE Country__c = 'Canada' AND New_US_Territory__c = 'EMEA'` | Accounts |
 | Mismatch: non-US/CA country in US sub-territory | `... WHERE Country__c NOT IN ('United States','Canada') AND Country__c != null AND New_US_Territory__c IN ('Midwest','Northeast','Northern California','Pacific','New York','Southeast')` | Accounts |
 | Mismatch: LatAm country elsewhere | `... WHERE Country__c IN ('Brazil','Mexico','Argentina','Colombia') AND New_US_Territory__c != 'Latin America'` | Accounts |
