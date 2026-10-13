@@ -163,6 +163,12 @@ const D=[
 {id:'dup-rules',dom:'Duplicates',t:'Duplicate record sets logged by duplicate rules',n:5241,base:null,sev:'info',
  why:'Salesforce already flagged 5,241 duplicate sets (DuplicateRecordSet). Rules detect duplicates but the backlog is not being merged.',
  act:'Review the matching rules, then work the backlog from the Duplicate Record Sets tab.',q:{"tabs": [{"k": "SETS", "t": "SELECT Id, DuplicateRuleId, RecordCount, CreatedDate\nFROM DuplicateRecordSet\nORDER BY CreatedDate DESC"}, {"k": "ITEMS", "t": "SELECT Id, DuplicateRecordSetId, RecordId\nFROM DuplicateRecordItem"}]}},
+{id:'zip-lead0',fix:'zip',q:{"o": "Account", "f": "Id, Name, Country__c, US_State__c, City__c, BillingPostalCode, Owner.Name", "w": "Country__c = 'United States' AND (BillingPostalCode LIKE '____' OR BillingPostalCode LIKE '___')"},dom:'Data quality',t:'US zip codes missing their leading zero',n:1611,base:69042,bl:'US accounts',sev:'crit',
+ why:'1,551 four-digit and 60 three-digit US zips. Arlington MA is stored as 2474 instead of 02474, Westborough MA as 1581 instead of 01581. This is the classic CSV or Excel import loss. Since zip drives territory, every New England, New Jersey and Puerto Rico account affected will fail a zip lookup.',
+ act:'Pad to 5 digits (no enrichment needed). Use Build fixed CSV, then load with Data Loader. Never open the CSV in Excel, it removes the zeros again.'},
+{id:'zip-blank',enr:true,q:{"o": "Account", "f": "Id, Name, Country__c, US_State__c, City__c, BillingPostalCode, Owner.Name", "w": "Country__c = 'United States' AND BillingPostalCode = null"},dom:'Data quality',t:'US accounts with no zip code',n:12295,base:69042,bl:'US accounts',sev:'rev',
+ why:'18% of US accounts have no BillingPostalCode, so zip-based territory cannot run on them.',
+ act:'Enrich with Clay (Company Address) in batches, then load the CSV. Accounts without a website need another source.'},
 {id:'acc-country',enr:true,q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c = null"},dom:'Data quality',t:'Accounts with no Country',n:46266,base:234348,bl:'accounts',sev:'rev',
  why:'Based on Country__c. One in five accounts has no country, which also blocks territory and region logic.',
  act:'Enrich from website domain or Clay. Make Country required on creation.'},
@@ -200,7 +206,7 @@ function card(d){
   const drill=d.rows?`<details><summary>SHOW RECORDS</summary><div class="tbl"><table><thead><tr>${d.cols.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${d.rows.map(r=>`<tr>${r.map(x=>`<td>${x}</td>`).join('')}</tr>`).join('')}</tbody></table></div></details>`:'';
   return el(`<article class="card" data-id="${d.id}"><div class="top"><div><div class="mono dom">${d.dom}</div><h3>${d.t}</h3></div><span class="pill ${d.sev}">${sevLabel[d.sev]}</span></div>
   <div class="num">${numHTML(d)}</div><div class="barw">${barHTML(d)}</div>
-  <p>${d.why}</p><p class="act"><b>Action:</b> ${d.act}</p>${drill}<div class="btns">${d.q?`<button type="button" class="qbtn" data-q="${d.id}">Generate SOQL</button>`:''}${d.enr?`<button type="button" class="qbtn ebtn" data-e="${d.id}">Enrich with Clay</button>`:''}</div><div class="qbox" data-box="${d.id}" hidden></div><div class="ebox" data-ebox="${d.id}" hidden></div></article>`);
+  <p>${d.why}</p><p class="act"><b>Action:</b> ${d.act}</p>${drill}<div class="btns">${d.q?`<button type="button" class="qbtn" data-q="${d.id}">Generate SOQL</button>`:''}${d.enr?`<button type="button" class="qbtn ebtn" data-e="${d.id}">Enrich with Clay</button>`:''}${d.fix?`<button type="button" class="qbtn ebtn" data-fix="${d.id}">Build fixed CSV</button>`:''}</div><div class="qbox" data-box="${d.id}" hidden></div><div class="ebox" data-ebox="${d.id}" hidden></div></article>`);
 }
 function refreshCard(d){
   const a=grid.querySelector(`[data-id="${d.id}"]`);if(!a)return;
@@ -284,15 +290,21 @@ const PICK=new Set([...Object.values(US_ST),...Object.values(CA_PR),'Calgary','C
 const CN_OVR={TR:'Turkey',CZ:'Czech Republic',KR:'South Korea',RU:'Russia',VN:'Vietnam',GB:'United Kingdom',US:'United States'};
 function cname(cc){if(CN_OVR[cc])return CN_OVR[cc];try{return new Intl.DisplayNames(['en'],{type:'region'}).of(cc)||cc}catch(e){return cc}}
 const domOf=w=>String(w||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').split(/[\/?#]/)[0];
-const POSTAL=/\s+(?=[A-Z0-9 -]*\d)[A-Z0-9][A-Z0-9 -]{1,8}$/i;
+const PC=/\b(\d{5}(?:-\d{4})?|[A-Z]\d[A-Z] ?\d[A-Z]\d|[A-Z]{1,2}\d[A-Z\d]? ?\d[A-Z]{2}|\d{4,6})\b/i;
 function parseAddr(v){
   let a='';try{a=JSON.parse(v).Address||''}catch(e){a=String(v||'')}
   if(!a)return null;
   const p=a.split(',').map(x=>x.trim()).filter(Boolean);
   if(p.length<2)return {raw:a};
   const cc=p[p.length-1].toUpperCase();
-  const reg=p[p.length-2].replace(POSTAL,'').trim();
-  const out={raw:a,cc,country:cname(cc),region:reg};
+  const regPart=p[p.length-2];
+  const m=regPart.match(PC);
+  let zip=m?m[1].toUpperCase():'';
+  const reg=(m?regPart.replace(m[0],''):regPart).trim();
+  let city=p[p.length-3]||'';
+  if(/^\d/.test(city))city='';
+  if(cc==='CA'&&zip.length===6)zip=zip.slice(0,3)+' '+zip.slice(3);
+  const out={raw:a,cc,country:cname(cc),region:reg,city,zip};
   if(cc==='US')out.state=US_ST[reg.toUpperCase()]||(PICK.has(reg)?reg:'');
   else if(cc==='CA')out.state=CA_PR[reg.toUpperCase()]||(PICK.has(reg)?reg:'');
   return out;
@@ -308,8 +320,10 @@ function enrichUI(d,box){
   <tr><td>Id</td><td>always</td><td>Match key</td></tr>
   <tr><td>Country__c</td><td>on by default</td><td>Country name from Clay's address (e.g. Canada)</td></tr>
   <tr><td>State_Region__c</td><td>on by default</td><td>US and Canada: full state or province name, same format as today. Other countries: the region text.</td></tr>
+  <tr><td>City__c</td><td>on by default</td><td>City from Clay's address (the field in use, BillingCity is empty on sampled accounts)</td></tr>
+  <tr><td>BillingPostalCode</td><td>on by default</td><td>Zip or postal code from Clay's address. US zips keep leading zeros and the ZIP+4 format if present.</td></tr>
   <tr><td>US_State__c</td><td>off by default</td><td>Derived from State_Region__c (72,858 of 73,615 US and Canada accounts already match). Turn on only if the automation does not fill it.</td></tr>
-  <tr><td>New_US_Territory__c, Region__c, Owner</td><td>never</td><td>Not touched. Re-run territory assignment after loading.</td></tr>
+  <tr><td>BillingCity, BillingState, BillingCountry, New_US_Territory__c, Region__c, Owner</td><td>never</td><td>Not touched. Re-run territory assignment after loading.</td></tr>
   </tbody></table></div>
   <div class="erow"><label for="n-${d.id}" class="qmsg">Accounts</label><select id="n-${d.id}"><option>10</option><option selected>25</option><option>50</option></select><button type="button" class="qbtn" data-act="load">Load accounts</button></div>
   <div data-out></div>`;
@@ -320,8 +334,8 @@ function enrichUI(d,box){
     const n=+box.querySelector('select').value;
     msg('Loading accounts from Salesforce…');
     try{
-      const p=await sfq(`SELECT Id, Name, Website, Country__c, US_State__c, State_Region__c FROM Account WHERE ${w} AND Website != null AND Website NOT IN ('example.org','onmicrosoft.com','wikidot.com') LIMIT ${n}`);
-      S.rows=(p.records||[]).map(r=>({id:r.Id,name:r.Name,dom:domOf(r.Website),country:r.Country__c||'',state:r.US_State__c||'',region:r.State_Region__c||''})).filter(r=>r.dom);
+      const p=await sfq(`SELECT Id, Name, Website, Country__c, US_State__c, State_Region__c, City__c, BillingPostalCode FROM Account WHERE ${w} AND Website != null AND Website NOT IN ('example.org','onmicrosoft.com','wikidot.com') LIMIT ${n}`);
+      S.rows=(p.records||[]).map(r=>({id:r.Id,name:r.Name,dom:domOf(r.Website),country:r.Country__c||'',state:r.US_State__c||'',region:r.State_Region__c||'',city:r.City__c||'',zip:r.BillingPostalCode||''})).filter(r=>r.dom);
       if(!S.rows.length){msg('No accounts with a usable website in this check.');return}
       out.innerHTML=`<p class="qmsg">${S.rows.length} accounts loaded. Running Clay will use ${S.rows.length} credits.</p><div class="erow"><button type="button" class="qbtn" data-act="run">Run Clay on ${S.rows.length} accounts</button></div>`;
       out.querySelector('[data-act="run"]').onclick=run;
@@ -349,9 +363,9 @@ function enrichUI(d,box){
     (res.entities||[]).forEach(en=>{const dm=en.inputs&&en.inputs['Company Domain'];const e=Object.values(en.enrichments||{})[0];if(dm&&e&&e.state==='completed')byDom[dm]=parseAddr(e.value)});
     const rows=S.rows.map(r=>{
       const a=byDom[r.dom];
-      let prop={country:'',state:'',region:'',flag:'unk',note:'No address found'};
+      let prop={country:'',state:'',region:'',city:'',zip:'',flag:'unk',note:'No address found'};
       if(a&&a.country){
-        prop.country=a.country;
+        prop.country=a.country;prop.city=a.city||'';prop.zip=a.zip||'';
         if(a.cc==='US'||a.cc==='CA'){prop.state=a.state||'';prop.note=a.state?'':'State not in picklist'}
         else prop.region=a.region||'';
         prop.flag=(r.country&&r.country!==a.country)?'chg':'ok';
@@ -359,15 +373,19 @@ function enrichUI(d,box){
       }
       return {...r,prop};
     });
-    out.innerHTML=`<div class="tbl"><table><thead><tr><th>Account</th><th>Now</th><th>Clay proposes</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc([r.country,r.state||r.region].filter(Boolean).join(' / ')||'blank')}</td><td>${esc([r.prop.country,r.prop.state||r.prop.region].filter(Boolean).join(' / ')||'none')}</td><td><span class="eflag ${r.prop.flag}">${r.prop.flag==='chg'?'CHANGE':r.prop.flag==='ok'?((r.state||r.region)?'MATCH':'FILL'):'UNKNOWN'}</span> ${esc(r.prop.note)}</td></tr>`).join('')}</tbody></table></div>
-    <div class="erow"><span class="qmsg">Columns in CSV:</span><label class="qmsg"><input type="checkbox" checked disabled> Id</label><label class="qmsg"><input type="checkbox" id="fc-${d.id}" checked> Country__c</label><label class="qmsg"><input type="checkbox" id="fr-${d.id}" checked> State_Region__c</label><label class="qmsg"><input type="checkbox" id="fs-${d.id}"> US_State__c</label></div>
+    out.innerHTML=`<div class="tbl"><table><thead><tr><th>Account</th><th>Now</th><th>Clay proposes</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc([r.country,r.state||r.region,r.city,r.zip].filter(Boolean).join(' / ')||'blank')}</td><td>${esc([r.prop.country,r.prop.state||r.prop.region,r.prop.city,r.prop.zip].filter(Boolean).join(' / ')||'none')}</td><td><span class="eflag ${r.prop.flag}">${r.prop.flag==='chg'?'CHANGE':r.prop.flag==='ok'?((r.state||r.region)?'MATCH':'FILL'):'UNKNOWN'}</span> ${esc(r.prop.note)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="erow"><span class="qmsg">Columns in CSV:</span><label class="qmsg"><input type="checkbox" checked disabled> Id</label><label class="qmsg"><input type="checkbox" id="fc-${d.id}" checked> Country__c</label><label class="qmsg"><input type="checkbox" id="fr-${d.id}" checked> State_Region__c</label><label class="qmsg"><input type="checkbox" id="fy-${d.id}" checked> City__c</label><label class="qmsg"><input type="checkbox" id="fz-${d.id}" checked> BillingPostalCode</label><label class="qmsg"><input type="checkbox" id="fs-${d.id}"> US_State__c</label></div>
+    <div class="erow"><label class="qmsg"><input type="checkbox" id="fo-${d.id}" checked> Only fill empty fields (keep existing values)</label></div>
     <div class="erow"><button type="button" class="qbtn" data-act="csv">Copy CSV for Data Loader</button><span class="qmsg" data-m></span></div>
-    <p class="qmsg">Review before loading. Clay returns the company HQ, which is not always where a subsidiary or regional account sits.</p>`;
+    <p class="qmsg">Review before loading. Clay returns the company HQ, which is not always where a subsidiary or regional account sits. Load with Data Loader, do not open the CSV in Excel (it strips leading zeros from zip codes).</p>`;
     out.querySelector('[data-act="csv"]').onclick=()=>{
       const m=out.querySelector('[data-m]');
-      const cols=[['Country__c',`fc-${d.id}`,r=>r.prop.country],['State_Region__c',`fr-${d.id}`,r=>r.prop.state||r.prop.region],['US_State__c',`fs-${d.id}`,r=>r.prop.state]].filter(c=>document.getElementById(c[1]).checked);
-      const csv=[['Id',...cols.map(c=>c[0])].join(','),...rows.filter(r=>r.prop.country).map(r=>[r.id,...cols.map(c=>c[2](r))].map(csvq).join(','))].join('\n');
-      try{navigator.clipboard.writeText(csv).then(()=>{m.textContent='Copied: '+cols.map(c=>c[0]).join(', ')},()=>{m.textContent='Clipboard blocked, select the table instead'})}catch(e){m.textContent='Clipboard blocked'}
+      const fo=document.getElementById(`fo-${d.id}`).checked;
+      const cols=[['Country__c',`fc-${d.id}`,r=>r.prop.country,r=>r.country],['State_Region__c',`fr-${d.id}`,r=>r.prop.state||r.prop.region,r=>r.region],['City__c',`fy-${d.id}`,r=>r.prop.city,r=>r.city],['BillingPostalCode',`fz-${d.id}`,r=>r.prop.zip,r=>r.zip],['US_State__c',`fs-${d.id}`,r=>r.prop.state,r=>r.state]].filter(c=>document.getElementById(c[1]).checked);
+      const val=(c,r)=>(fo&&c[3](r))?'':c[2](r);
+      const lines=rows.filter(r=>r.prop.country).map(r=>[r.id,...cols.map(c=>val(c,r))]).filter(x=>x.slice(1).some(Boolean));
+      const csv=[['Id',...cols.map(c=>c[0])].join(','),...lines.map(x=>x.map(csvq).join(','))].join('\n');
+      try{navigator.clipboard.writeText(csv).then(()=>{m.textContent='Copied '+lines.length+' rows: '+cols.map(c=>c[0]).join(', ')},()=>{m.textContent='Clipboard blocked, select the table instead'})}catch(e){m.textContent='Clipboard blocked'}
     };
   }
 }
@@ -377,6 +395,21 @@ grid.addEventListener('click',e=>{
   const d=D.find(x=>x.id===b.dataset.e),box=grid.querySelector(`[data-ebox="${d.id}"]`);
   if(!box.hidden){box.hidden=true;return}
   enrichUI(d,box);
+});
+grid.addEventListener('click',async e=>{
+  const b=e.target.closest('[data-fix]');if(!b)return;
+  const d=D.find(x=>x.id===b.dataset.fix),box=grid.querySelector(`[data-ebox="${d.id}"]`);
+  box.hidden=false;
+  const say=t=>{box.innerHTML=`<p class="qmsg">${t}</p>`};
+  if(!MCP){say('Open this dashboard with the Salesforce connector to build the CSV.');return}
+  say('Loading accounts…');
+  try{
+    const p=await sfq(`SELECT Id, Name, BillingPostalCode FROM Account WHERE ${d.q.w}`);
+    const rows=(p.records||[]).filter(r=>/^\d{3,4}$/.test(r.BillingPostalCode||'')).map(r=>[r.Id,String(r.BillingPostalCode).padStart(5,'0')]);
+    const csv=['Id,BillingPostalCode',...rows.map(x=>x.map(csvq).join(','))].join('\n');
+    box.innerHTML=`<p class="qmsg">${rows.length} accounts. Example: ${esc(rows[0]?rows[0][1]:'')}. Only BillingPostalCode is written, and only 3 or 4 digit US values are padded to 5.</p><div class="erow"><button type="button" class="qbtn" data-copy>Copy CSV for Data Loader</button><span class="qmsg" data-m></span></div>`;
+    box.querySelector('[data-copy]').onclick=()=>{const m=box.querySelector('[data-m]');try{navigator.clipboard.writeText(csv).then(()=>{m.textContent='Copied '+rows.length+' rows'},()=>{m.textContent='Clipboard blocked'})}catch(err){m.textContent='Clipboard blocked'}};
+  }catch(err){say('Salesforce query failed: '+(err.code||'')+' '+(err.message||''))}
 });
 (async()=>{
   try{MCP=window.claude&&window.claude.use?await window.claude.use('mcp'):null}catch(e){MCP=null}

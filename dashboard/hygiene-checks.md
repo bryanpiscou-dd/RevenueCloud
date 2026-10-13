@@ -27,6 +27,8 @@ SOQL behind each tile of `salesforce-hygiene-dashboard.html`. Re-run to refresh.
 | Duplicate accounts by website | `SELECT Website, COUNT(Id) FROM Account WHERE Website != null GROUP BY Website HAVING COUNT(Id) > 1` | Accounts (summary by Website) |
 | Duplicate accounts by name | `SELECT Name, COUNT(Id) FROM Account GROUP BY Name HAVING COUNT(Id) > 1 LIMIT 2000` (capped, real total is higher) | Accounts (summary by Name) |
 | Duplicate sets from rules | `SELECT COUNT(Id) FROM DuplicateRecordSet` | none |
+| US zips missing leading zero | `... FROM Account WHERE Country__c = 'United States' AND (BillingPostalCode LIKE '____' OR BillingPostalCode LIKE '___')` | Accounts |
+| US accounts with no zip | `... WHERE Country__c = 'United States' AND BillingPostalCode = null` | Accounts |
 | Flows, stale | `SELECT ApiName, ProcessType, TriggerType, LastModifiedDate FROM FlowDefinitionView WHERE IsActive = true AND NamespacePrefix = null AND LastModifiedDate < <today - 365d>` (split by date to stay under 2,000 rows) | none (Tooling API) |
 | Paused interviews | `SELECT COUNT(Id) FROM FlowInterview WHERE CreatedDate < LAST_N_DAYS:30` | none |
 
@@ -35,7 +37,7 @@ Each tile in the dashboard also has a Generate SOQL button (records list and cou
 ## Live refresh and enrichment
 - The dashboard page calls the viewer's Salesforce connector (`soqlQuery`) on open and every 24h while open. Viewers without the connector see the last published snapshot (13 Oct 2026).
 - Commentary text on each tile is a snapshot. Counts, percentages and severity update live.
-- "Enrich with Clay" runs the Clay Company Address function (one credit per account) on up to 50 accounts from a check and proposes Country__c and State_Region__c (US_State__c optional, off by default because it is derived from State_Region__c). It never writes to Salesforce: load the copied CSV with Data Loader after review.
+- "Enrich with Clay" runs the Clay Company Address function (one credit per account) on up to 50 accounts from a check and proposes Country__c, State_Region__c, City__c and BillingPostalCode in one CSV, with an option to fill empty fields only (US_State__c optional, off by default because it is derived from State_Region__c). It never writes to Salesforce: load the copied CSV with Data Loader after review.
 
 ## Known limits
 - Flow last run date is not queryable. Last modified date is a proxy. Use Flow Event Monitoring or an in-flow log for real run history.
