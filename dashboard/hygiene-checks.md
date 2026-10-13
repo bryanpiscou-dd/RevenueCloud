@@ -32,6 +32,11 @@ SOQL behind each tile of `salesforce-hygiene-dashboard.html`. Re-run to refresh.
 
 Each tile in the dashboard also has a Generate SOQL button (records list and count).
 
+## Live refresh and enrichment
+- The dashboard page calls the viewer's Salesforce connector (`soqlQuery`) on open and every 24h while open. Viewers without the connector see the last published snapshot (13 Oct 2026).
+- Commentary text on each tile is a snapshot. Counts, percentages and severity update live.
+- "Enrich with Clay" runs the Clay Company Address function (one credit per account) on up to 50 accounts from a check and proposes Country, US State and State Region. It never writes to Salesforce: load the copied CSV with Data Loader after review.
+
 ## Known limits
 - Flow last run date is not queryable. Last modified date is a proxy. Use Flow Event Monitoring or an in-flow log for real run history.
 - `FlowDefinitionView` does not support `COUNT()`, page the rows.

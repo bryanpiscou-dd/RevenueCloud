@@ -44,6 +44,15 @@ button:focus-visible,summary:focus-visible{outline:3px solid var(--dream);outlin
 .card p{margin:0;color:var(--muted);font-size:13px}
 .card .act{color:var(--fg);font-size:13px}
 .act b{font-weight:600}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.rbtn{font:600 11px var(--f-mono);letter-spacing:.05em;background:transparent;color:var(--neon);border:1px solid var(--neon);border-radius:999px;padding:4px 12px;cursor:pointer}
+.ebtn{background:var(--dream);color:#0b465e}
+.ebox{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:10px}
+.ebox[hidden]{display:none}
+.ebox select{font:400 12px var(--f-body);padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+.erow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.eflag{font:600 10px var(--f-mono);padding:2px 7px;border-radius:999px;color:#0b465e}
+.eflag.chg{background:var(--lavender)} .eflag.ok{background:var(--dream)} .eflag.unk{background:var(--sky)}
 .qbtn{align-self:flex-start;font:600 12px var(--f-body);background:var(--chip-on);color:var(--chip-on-fg);border:0;border-radius:8px;padding:8px 14px;cursor:pointer}
 .qbox{display:flex;flex-direction:column;gap:8px}
 .qtabs{display:flex;gap:6px}
@@ -65,7 +74,7 @@ th{font:600 11px var(--f-mono);color:var(--muted)}
 
 <div class="wrap">
   <header class="hero">
-    <span class="mono" style="color:var(--dream)">LIVE SNAPSHOT · 13 OCT 2026 · SALESFORCE PRODUCTION</span>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center"><span class="mono" id="status" style="color:var(--dream)">SNAPSHOT · 13 OCT 2026 · SALESFORCE PRODUCTION</span><button type="button" class="rbtn" id="refresh" hidden>Refresh now</button></div>
     <h1>Salesforce hygiene dashboard</h1>
     <p>Where ownership, pipeline, users, contacts and automation have drifted. Each check shows the count, the base it is measured against, and the records to fix.</p>
     <div class="strip" id="strip"></div>
@@ -112,32 +121,32 @@ const D=[
 {id:'usr-30',q:{"o": "User", "f": "Id, Name, Profile.Name, LastLoginDate, UserType", "w": "IsActive = true AND UserType = 'Standard' AND LastLoginDate < LAST_N_DAYS:30"},dom:'Users',t:'Active users with no login in 30 days',n:3,base:130,bl:'active standard users',sev:'info',
  why:'One integration user (last login Nov 2024), the "No Owner" placeholder (Dec 2025) and one C-Level user.',
  act:'Confirm "No Owner" is still needed as a routing owner. Freeze or deactivate the stale integration user.'},
-{id:'mm-us-emea',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c = 'United States' AND New_US_Territory__c IN ('EMEA','Latin America')"},dom:'Territory mismatch',t:'Country = United States, territory is not a US territory',n:53,base:69042,bl:'US accounts',sev:'crit',
+{id:'mm-us-emea',enr:true,q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c = 'United States' AND New_US_Territory__c IN ('EMEA','Latin America')"},dom:'Territory mismatch',t:'Country = United States, territory is not a US territory',n:53,base:69042,bl:'US accounts',sev:'crit',
  why:'US accounts carrying EMEA or Latin America in New US Territory. Region is correctly North America on the sampled rows, so the territory value is what is wrong. These accounts route to the wrong team.',
  act:'39 of 53 have no US State, see the empty US State check. Fix the state, then re-run territory assignment.',
  cols:['Account','Country','Region','Territory'],rows:[['CAPTAIN TECH USA LLC','United States','North America','EMEA'],['Work at home','United States','North America','EMEA'],['Caterkids Hawaii','United States','North America','EMEA'],['EVA Airways Corp.','United States','North America','EMEA'],['Online-Design','United States','North America','EMEA'],['tresresortwear.com','United States','North America','EMEA']]},
-{id:'mm-us-nostate',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, State_Region__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('United States','Canada') AND US_State__c = null"},dom:'Territory mismatch',t:'Country = United States or Canada, US State is empty',n:641,base:73615,bl:'US and Canada accounts',sev:'crit',
+{id:'mm-us-nostate',enr:true,q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, State_Region__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('United States','Canada') AND US_State__c = null"},dom:'Territory mismatch',t:'Country = United States or Canada, US State is empty',n:641,base:73615,bl:'US and Canada accounts',sev:'crit',
  why:'39 US and 602 Canadian accounts have no state or province. No state means no territory, so it falls back to EMEA: 601 of the 602 Canadian accounts and all 39 US ones are in EMEA. Root cause of both the US and Canada territory mismatches. Split below by whether State Region (the field that drives US State) has a value.',
  act:'Work the two sub-checks below, then re-run territory assignment. Make US State required when Country is United States or Canada.'},
-{id:'mm-state-both',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, State_Region__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('United States','Canada') AND US_State__c = null AND State_Region__c = null"},dom:'Territory mismatch',t:'US or Canada: US State and State Region both empty',n:511,base:73615,bl:'US and Canada accounts',sev:'crit',
+{id:'mm-state-both',enr:true,q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, State_Region__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('United States','Canada') AND US_State__c = null AND State_Region__c = null"},dom:'Territory mismatch',t:'US or Canada: US State and State Region both empty',n:511,base:73615,bl:'US and Canada accounts',sev:'crit',
  why:'Nothing to derive the state from. Billing State is empty on the US ones too. These need enrichment (domain, Clay, Gong) or manual entry.',
  act:'Enrich state or province from the account domain or HQ data, then let the flow populate US State.'},
-{id:'mm-state-region',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, State_Region__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('United States','Canada') AND US_State__c = null AND State_Region__c != null"},dom:'Territory mismatch',t:'US or Canada: US State empty but State Region is filled',n:130,base:73615,bl:'US and Canada accounts',sev:'rev',
+{id:'mm-state-region',enr:true,q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, State_Region__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('United States','Canada') AND US_State__c = null AND State_Region__c != null"},dom:'Territory mismatch',t:'US or Canada: US State empty but State Region is filled',n:130,base:73615,bl:'US and Canada accounts',sev:'rev',
  why:'20 US and 110 Canadian accounts. The State Region values are foreign (England, Berlin, Occitanie, Dubai, Lima, Tunis), so the state stays empty because the region is not a US state or Canadian province. The Country value is most likely wrong, not the state.',
  act:'Review Country first. Correct it from State Region and the domain, then let territory reassign.',
  cols:['Account','State Region','Country'],rows:[['Online-Design','England','US/Canada'],['tanitoss','Tunis','US/Canada'],['Mews Partners','Occitanie','US/Canada'],['BaziCenter','Dubai','US/Canada'],['KTO.com','Lima','US/Canada'],['Lovehoney Group','Berlin','US/Canada'],['KPMG International Limited','Berlin','US/Canada']]},
-{id:'mm-state-nonus',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c NOT IN ('United States','Canada') AND Country__c != null AND US_State__c != null"},dom:'Territory mismatch',t:'US State filled on a non-US, non-Canada account',n:1927,base:null,sev:'rev',
+{id:'mm-state-nonus',enr:true,q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c NOT IN ('United States','Canada') AND Country__c != null AND US_State__c != null"},dom:'Territory mismatch',t:'US State filled on a non-US, non-Canada account',n:1927,base:null,sev:'rev',
  why:'5,898 non-US accounts carry a US State. 3,971 are Canada (provinces, by design). The remaining 1,927 are mostly India (271), China (216), UK (146), Russia (105) and Brazil (98), and explain why they land in US sub-territories.',
  act:'Clear US State where Country is not US or Canada, and add a flow guard.'},
-{id:'mm-nonus-us',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c NOT IN ('United States','Canada') AND Country__c != null AND New_US_Territory__c IN ('Midwest','Northeast','Northern California','Pacific','New York','Southeast')"},dom:'Territory mismatch',t:'Non-US, non-Canada country in a US sub-territory',n:1598,base:null,sev:'rev',
+{id:'mm-nonus-us',enr:true,q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c NOT IN ('United States','Canada') AND Country__c != null AND New_US_Territory__c IN ('Midwest','Northeast','Northern California','Pacific','New York','Southeast')"},dom:'Territory mismatch',t:'Non-US, non-Canada country in a US sub-territory',n:1598,base:null,sev:'rev',
  why:'Counts the six main US sub-territories only (Midwest, Northeast, Northern California, Pacific, New York, Southeast), so the real figure is higher. Examples: McDonald\'s (UK) in Midwest, IDLogistics (France) in Northeast, Mercer Island Group (Russia) in Pacific.',
  act:'Likely a US state field applied to the wrong country. Check the territory assignment logic for a country guard.',
  cols:['Account','Country','Territory'],rows:[['Mercer Island Group','Russia','Pacific'],['Cohere Health','India','Northeast'],['PDP','United Kingdom','Midwest'],["McDonald's",'United Kingdom','Midwest'],['IDLogistics','France','Northeast'],['DriveMedia','France','Southeast'],['Robert Gordon University','United Kingdom','Pacific']]},
-{id:'mm-latam',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('Brazil','Mexico','Argentina','Colombia') AND New_US_Territory__c != 'Latin America'"},dom:'Territory mismatch',t:'Latin American country not in Latin America territory',n:22,base:null,sev:'rev',
+{id:'mm-latam',enr:true,q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('Brazil','Mexico','Argentina','Colombia') AND New_US_Territory__c != 'Latin America'"},dom:'Territory mismatch',t:'Latin American country not in Latin America territory',n:22,base:null,sev:'rev',
  why:'Brazil 18, Mexico 2, Argentina 2 (Colombia clean). Small, but it is a routing error on strategic markets.',act:'Correct and add to the territory assignment test set.'},
-{id:'mm-region',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('France','Germany','United Kingdom','Spain','Italy','Netherlands','Poland','Sweden','Switzerland','Belgium','Greece','Turkey','Russia','Ukraine') AND Region__c IN ('North America','Latin America','Asia Pacific','Oceania')"},dom:'Territory mismatch',t:'European country with a non-European Region',n:33,base:null,sev:'rev',
+{id:'mm-region',enr:true,q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c IN ('France','Germany','United Kingdom','Spain','Italy','Netherlands','Poland','Sweden','Switzerland','Belgium','Greece','Turkey','Russia','Ukraine') AND Region__c IN ('North America','Latin America','Asia Pacific','Oceania')"},dom:'Territory mismatch',t:'European country with a non-European Region',n:33,base:null,sev:'rev',
  why:'Checked on 14 European countries. Examples: Germany tagged Other (Sixt Antilles, eddb.io, Timpul), Spain tagged North America (colpal.com).',act:'Fix Region from Country with a formula or flow instead of manual entry.'},
-{id:'mm-nocountry-terr',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c = null AND New_US_Territory__c IN ('Midwest','Northeast','Northern California','Pacific','New York','Southeast')"},dom:'Territory mismatch',t:'Territory set to a US sub-territory but Country is blank',n:710,base:46266,bl:'accounts with no country',sev:'rev',
+{id:'mm-nocountry-terr',enr:true,q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c = null AND New_US_Territory__c IN ('Midwest','Northeast','Northern California','Pacific','New York','Southeast')"},dom:'Territory mismatch',t:'Territory set to a US sub-territory but Country is blank',n:710,base:46266,bl:'accounts with no country',sev:'rev',
  why:'A US territory was assigned without a country, so it was derived from something else (state, domain or an import).',act:'Backfill Country from the source that produced the territory.'},
 {id:'dup-con-email',q:{"tabs": [{"k": "GROUPS", "t": "SELECT Email, COUNT(Id) c\nFROM Contact\nWHERE Email != null\nGROUP BY Email\nHAVING COUNT(Id) > 1\nORDER BY COUNT(Id) DESC"}, {"k": "DETAIL", "t": "SELECT Id, Name, Email, Account.Name, Owner.Name, CreatedDate\nFROM Contact\nWHERE Email = '<paste email from GROUPS>'"}]},dom:'Duplicates',t:'Contacts sharing the same email',n:171,base:228787,bl:'contacts (171 emails shared by 349 contacts, 178 redundant)',sev:'rev',
  why:'171 email addresses sit on 2 to 4 contacts each. Worst: a@apple.com and gougalfr@amazon.co.uk (4 each), teresa_dorety@comcast.com, mhugon@kaliop.com and janko.ulaga@goflink.com (3 each). One internal address, bo-customers@datadome.co, is duplicated and should not be a contact.',
@@ -154,10 +163,10 @@ const D=[
 {id:'dup-rules',dom:'Duplicates',t:'Duplicate record sets logged by duplicate rules',n:5241,base:null,sev:'info',
  why:'Salesforce already flagged 5,241 duplicate sets (DuplicateRecordSet). Rules detect duplicates but the backlog is not being merged.',
  act:'Review the matching rules, then work the backlog from the Duplicate Record Sets tab.',q:{"tabs": [{"k": "SETS", "t": "SELECT Id, DuplicateRuleId, RecordCount, CreatedDate\nFROM DuplicateRecordSet\nORDER BY CreatedDate DESC"}, {"k": "ITEMS", "t": "SELECT Id, DuplicateRecordSetId, RecordId\nFROM DuplicateRecordItem"}]}},
-{id:'acc-country',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c = null"},dom:'Data quality',t:'Accounts with no Country',n:46266,base:234348,bl:'accounts',sev:'rev',
+{id:'acc-country',enr:true,q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c = null"},dom:'Data quality',t:'Accounts with no Country',n:46266,base:234348,bl:'accounts',sev:'rev',
  why:'Based on Country__c. One in five accounts has no country, which also blocks territory and region logic.',
  act:'Enrich from website domain or Clay. Make Country required on creation.'},
-{id:'acc-region-nocountry',q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c = null AND Region__c != null"},dom:'Data quality',t:'Region set but Country blank',n:892,base:null,sev:'info',
+{id:'acc-region-nocountry',enr:true,q:{"o": "Account", "f": "Id, Name, Country__c, Region__c, US_State__c, New_US_Territory__c, Owner.Name", "w": "Country__c = null AND Region__c != null"},dom:'Data quality',t:'Region set but Country blank',n:892,base:null,sev:'info',
  why:'Region exists without the country that should drive it.',act:'Backfill Country, or derive Region from Country only.'},
 {id:'con-noacct',q:{"o": "Contact", "f": "Id, Name, Email, CreatedDate, Owner.Name", "w": "AccountId = null"},dom:'Data quality',t:'Contacts with no account',n:10300,base:null,sev:'rev',
  why:'Orphan contacts cannot roll up to account reporting, territory or ABM. The scheduled flow that links them is not clearing the backlog.',
@@ -176,18 +185,27 @@ const sevLabel={crit:'CRITICAL',rev:'REVIEW',info:'WATCH',ok:'CLEAN'};
 const el=(h)=>{const t=document.createElement('template');t.innerHTML=h.trim();return t.content.firstChild};
 const strip=document.getElementById('strip');
 const c=s=>D.filter(d=>d.sev===s).length;
-[['crit','Critical checks',c('crit')],['',  'Review',c('rev')],['','Watch',c('info')],['','Clean',c('ok')],['','Checks run',D.length]].forEach(([k,l,v])=>strip.append(el(`<div class="stat ${k}"><b>${v}</b><span>${l}</span></div>`)));
+function renderStrip(){
+  strip.replaceChildren(...[['crit','Critical checks',c('crit')],['','Review',c('rev')],['','Watch',c('info')],['','Clean',c('ok')],['','Checks run',D.length]].map(([k,l,v])=>el(`<div class="stat ${k}"><b>${v}</b><span>${l}</span></div>`)));
+}
+renderStrip();
+D.forEach(d=>{d.sev0=d.sev});
 const doms=['All',...new Set(D.map(d=>d.dom))];
 let cur='All';
 const fb=document.getElementById('filters'),grid=document.getElementById('grid');
+const ptxt=d=>d.base?` of ${fmt(d.base)} ${d.bl} (${(d.n/d.base*100).toFixed(d.n/d.base<.01?2:1)}%)`:'';
+const numHTML=d=>`<b>${fmt(d.n)}</b><span>${ptxt(d)}${d.live?' · live':''}</span>`;
+const barHTML=d=>d.base?`<div class="bar ${d.sev==='crit'?'crit':''}"><i style="width:${Math.min(Math.max(d.n/d.base*100,d.n?1:0),100)}%"></i></div>`:'';
 function card(d){
-  const pct=d.base?Math.max(d.n/d.base*100,d.n?1:0):null;
-  const ptxt=d.base?` of ${fmt(d.base)} ${d.bl} (${(d.n/d.base*100).toFixed(d.n/d.base<.01?2:1)}%)`:'';
   const drill=d.rows?`<details><summary>SHOW RECORDS</summary><div class="tbl"><table><thead><tr>${d.cols.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${d.rows.map(r=>`<tr>${r.map(x=>`<td>${x}</td>`).join('')}</tr>`).join('')}</tbody></table></div></details>`:'';
-  return el(`<article class="card"><div class="top"><div><div class="mono dom">${d.dom}</div><h3>${d.t}</h3></div><span class="pill ${d.sev}">${sevLabel[d.sev]}</span></div>
-  <div class="num"><b>${fmt(d.n)}</b><span>${ptxt}</span></div>
-  ${pct!==null?`<div class="bar ${d.sev==='crit'?'crit':''}"><i style="width:${Math.min(pct,100)}%"></i></div>`:''}
-  <p>${d.why}</p><p class="act"><b>Action:</b> ${d.act}</p>${drill}${d.q?`<button type="button" class="qbtn" data-q="${d.id}">Generate SOQL</button><div class="qbox" data-box="${d.id}" hidden></div>`:''}</article>`);
+  return el(`<article class="card" data-id="${d.id}"><div class="top"><div><div class="mono dom">${d.dom}</div><h3>${d.t}</h3></div><span class="pill ${d.sev}">${sevLabel[d.sev]}</span></div>
+  <div class="num">${numHTML(d)}</div><div class="barw">${barHTML(d)}</div>
+  <p>${d.why}</p><p class="act"><b>Action:</b> ${d.act}</p>${drill}<div class="btns">${d.q?`<button type="button" class="qbtn" data-q="${d.id}">Generate SOQL</button>`:''}${d.enr?`<button type="button" class="qbtn ebtn" data-e="${d.id}">Enrich with Clay</button>`:''}</div><div class="qbox" data-box="${d.id}" hidden></div><div class="ebox" data-ebox="${d.id}" hidden></div></article>`);
+}
+function refreshCard(d){
+  const a=grid.querySelector(`[data-id="${d.id}"]`);if(!a)return;
+  const pl=a.querySelector('.pill');pl.className='pill '+d.sev;pl.textContent=sevLabel[d.sev];
+  a.querySelector('.num').innerHTML=numHTML(d);a.querySelector('.barw').innerHTML=barHTML(d);
 }
 function draw(){
   fb.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.d===cur));
@@ -217,6 +235,144 @@ grid.addEventListener('click',e=>{
   if(!box.hidden){box.hidden=true;return}
   showQ(d,box,0);
 });
+
+/* ---------- live refresh (Salesforce connector) ---------- */
+const SF='Salesforce MCP',CLAY='Clay';
+let MCP=null,stamp=0;const errs={};
+const unp=r=>{let p=r&&r.payload;if(typeof p==='string'){try{p=JSON.parse(p)}catch(e){}}return p};
+const sfq=q=>MCP.callTool(SF,'soqlQuery',{q},{cache:false}).then(unp);
+function liveDef(d){
+  if(!d.q)return null;
+  if(d.q.tabs){
+    if(d.id==='dup-rules')return {q:'SELECT COUNT(Id) c FROM DuplicateRecordSet',m:'c'};
+    return {q:d.q.tabs[0].t.replace(/\n/g,' '),m:'size'};
+  }
+  const w=d.q.w.replace('{D365}',d365());
+  if(d.q.o==='FlowDefinitionView')return {q:`SELECT ApiName FROM FlowDefinitionView WHERE ${w}`,m:'size'};
+  return {q:`SELECT COUNT(Id) c FROM ${d.q.o} WHERE ${w}`,m:'c'};
+}
+function updStatus(){
+  const st=document.getElementById('status');
+  if(stamp){st.textContent='LIVE · REFRESHED '+new Date(stamp).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}).toUpperCase()+' · AUTO-REFRESH EVERY 24H';return}
+  const e=Object.keys(errs)[0];
+  st.textContent='SNAPSHOT · 13 OCT 2026'+(e?' · LIVE UNAVAILABLE ('+e+')':' · CONNECTING TO SALESFORCE');
+}
+function startLive(){
+  document.getElementById('refresh').hidden=false;
+  D.forEach(d=>{
+    const ld=liveDef(d);if(!ld)return;
+    MCP.watchTool(SF,'soqlQuery',{q:ld.q},ev=>{
+      if(ev.type==='data'){
+        const p=unp(ev.result);if(!p)return;
+        const r0=p.records&&p.records[0];
+        const n=ld.m==='size'?Number(p.totalSize):Number(r0&&(r0.c!==undefined?r0.c:r0.expr0));
+        if(!Number.isFinite(n))return;
+        d.n=n;d.live=true;
+        d.sev=n===0?'ok':(d.sev0==='ok'?'rev':d.sev0);
+        stamp=Math.max(stamp,(ev.result.cache&&ev.result.cache.storedAt)||Date.now());
+        refreshCard(d);renderStrip();updStatus();
+      }else{errs[ev.error.code]=1;updStatus()}
+    },{refetchInterval:864e5,cache:{staleTime:3e5,gcTime:864e5}});
+  });
+  document.getElementById('refresh').onclick=()=>{MCP.invalidate(SF,'soqlQuery').catch(()=>{})};
+}
+
+/* ---------- Clay enrichment ---------- */
+const US_ST={AL:'Alabama',AK:'Alaska',AZ:'Arizona',AR:'Arkansas',CA:'California',CO:'Colorado',CT:'Connecticut',DE:'Delaware',DC:'District of Columbia',FL:'Florida',GA:'Georgia',HI:'Hawaii',ID:'Idaho',IL:'Illinois',IN:'Indiana',IA:'Iowa',KS:'Kansas',KY:'Kentucky',LA:'Louisiana',ME:'Maine',MD:'Maryland',MA:'Massachusetts',MI:'Michigan',MN:'Minnesota',MS:'Mississippi',MO:'Missouri',MT:'Montana',NE:'Nebraska',NV:'Nevada',NH:'New Hampshire',NJ:'New Jersey',NM:'New Mexico',NY:'New York',NC:'North Carolina',ND:'North Dakota',OH:'Ohio',OK:'Oklahoma',OR:'Oregon',PA:'Pennsylvania',RI:'Rhode Island',SC:'South Carolina',SD:'South Dakota',TN:'Tennessee',TX:'Texas',UT:'Utah',VT:'Vermont',VA:'Virginia',WA:'Washington',WV:'West Virginia',WI:'Wisconsin',WY:'Wyoming',PR:'Puerto Rico',GU:'Guam',VI:'Virgin Islands'};
+const CA_PR={AB:'Alberta',BC:'British Columbia',MB:'Manitoba',NB:'New Brunswick',NS:'Nova Scotia',ON:'Ontario',SK:'Saskatchewan',QC:'Quebec',NL:'Newfoundland and Labrador'};
+const PICK=new Set([...Object.values(US_ST),...Object.values(CA_PR),'Calgary','Canal Zone']);
+const CN_OVR={TR:'Turkey',CZ:'Czech Republic',KR:'South Korea',RU:'Russia',VN:'Vietnam',GB:'United Kingdom',US:'United States'};
+function cname(cc){if(CN_OVR[cc])return CN_OVR[cc];try{return new Intl.DisplayNames(['en'],{type:'region'}).of(cc)||cc}catch(e){return cc}}
+const domOf=w=>String(w||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').split(/[\/?#]/)[0];
+const POSTAL=/\s+(?=[A-Z0-9 -]*\d)[A-Z0-9][A-Z0-9 -]{1,8}$/i;
+function parseAddr(v){
+  let a='';try{a=JSON.parse(v).Address||''}catch(e){a=String(v||'')}
+  if(!a)return null;
+  const p=a.split(',').map(x=>x.trim()).filter(Boolean);
+  if(p.length<2)return {raw:a};
+  const cc=p[p.length-1].toUpperCase();
+  const reg=p[p.length-2].replace(POSTAL,'').trim();
+  const out={raw:a,cc,country:cname(cc),region:reg};
+  if(cc==='US')out.state=US_ST[reg.toUpperCase()]||(PICK.has(reg)?reg:'');
+  else if(cc==='CA')out.state=CA_PR[reg.toUpperCase()]||(PICK.has(reg)?reg:'');
+  return out;
+}
+const csvq=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+function enrichUI(d,box){
+  box.hidden=false;
+  const w=d.q.w;
+  const S={rows:[],res:null};
+  box.innerHTML=`<div class="erow"><b style="font-size:13px">Enrich with Clay (Company Address)</b></div>
+  <p class="qmsg" style="font-size:12px">Loads accounts from this check that have a website, asks Clay for the HQ address, and proposes Country, US State and State Region. Nothing is written to Salesforce: review, then copy the CSV into Data Loader. Each account costs one Clay credit.</p>
+  <div class="erow"><label for="n-${d.id}" class="qmsg">Accounts</label><select id="n-${d.id}"><option>10</option><option selected>25</option><option>50</option></select><button type="button" class="qbtn" data-act="load">Load accounts</button></div>
+  <div data-out></div>`;
+  const out=box.querySelector('[data-out]');
+  const msg=t=>{out.innerHTML=`<p class="qmsg">${t}</p>`};
+  box.querySelector('[data-act="load"]').onclick=async()=>{
+    if(!MCP){msg('Open this dashboard with the Salesforce and Clay connectors to use enrichment.');return}
+    const n=+box.querySelector('select').value;
+    msg('Loading accounts from Salesforce…');
+    try{
+      const p=await sfq(`SELECT Id, Name, Website, Country__c, US_State__c, State_Region__c FROM Account WHERE ${w} AND Website != null AND Website NOT IN ('example.org','onmicrosoft.com','wikidot.com') LIMIT ${n}`);
+      S.rows=(p.records||[]).map(r=>({id:r.Id,name:r.Name,dom:domOf(r.Website),country:r.Country__c||'',state:r.US_State__c||'',region:r.State_Region__c||''})).filter(r=>r.dom);
+      if(!S.rows.length){msg('No accounts with a usable website in this check.');return}
+      out.innerHTML=`<p class="qmsg">${S.rows.length} accounts loaded. Running Clay will use ${S.rows.length} credits.</p><div class="erow"><button type="button" class="qbtn" data-act="run">Run Clay on ${S.rows.length} accounts</button></div>`;
+      out.querySelector('[data-act="run"]').onclick=run;
+    }catch(e){msg('Salesforce query failed: '+(e.code||'')+' '+(e.message||''))}
+  };
+  async function run(){
+    msg('Sending to Clay…');
+    try{
+      const r=await MCP.callTool(CLAY,'run_subroutine_direct',{subroutine_id:'t_0tl2waneCpBvCgyWHry',inputs:S.rows.map(x=>({'Company Domain':x.dom}))},{cache:false});
+      const t=unp(r);const taskId=t&&t.taskId;
+      if(!taskId){msg('Clay did not return a task id.');return}
+      let res=null;
+      for(let i=0;i<30;i++){
+        await new Promise(k=>setTimeout(k,4000));
+        const g=unp(await MCP.callTool(CLAY,'get-task-context',{taskId},{cache:false}));
+        msg(`Clay is working… ${g.processedEntities||0} of ${g.totalEntities||S.rows.length} done`);
+        if(g.isComplete){res=g;break}
+      }
+      if(!res){msg('Clay is still running. Close this panel and click Enrich again in a minute.');return}
+      show(res);
+    }catch(e){msg('Clay call failed: '+(e.code||'')+' '+(e.message||''))}
+  }
+  function show(res){
+    const byDom={};
+    (res.entities||[]).forEach(en=>{const dm=en.inputs&&en.inputs['Company Domain'];const e=Object.values(en.enrichments||{})[0];if(dm&&e&&e.state==='completed')byDom[dm]=parseAddr(e.value)});
+    const rows=S.rows.map(r=>{
+      const a=byDom[r.dom];
+      let prop={country:'',state:'',region:'',flag:'unk',note:'No address found'};
+      if(a&&a.country){
+        prop.country=a.country;
+        if(a.cc==='US'||a.cc==='CA'){prop.state=a.state||'';prop.note=a.state?'':'State not in picklist'}
+        else prop.region=a.region||'';
+        prop.flag=(r.country&&r.country!==a.country)?'chg':'ok';
+        if(prop.flag==='chg'&&r.country&&r.country!==a.country)prop.note='Country differs';
+      }
+      return {...r,prop};
+    });
+    const csv=['Id,Name,Country__c,US_State__c,State_Region__c',...rows.filter(r=>r.prop.country).map(r=>[r.id,r.name,r.prop.country,r.prop.state,r.prop.region].map(csvq).join(','))].join('\n');
+    out.innerHTML=`<div class="tbl"><table><thead><tr><th>Account</th><th>Now</th><th>Clay proposes</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc([r.country,r.state||r.region].filter(Boolean).join(' / ')||'blank')}</td><td>${esc([r.prop.country,r.prop.state||r.prop.region].filter(Boolean).join(' / ')||'none')}</td><td><span class="eflag ${r.prop.flag}">${r.prop.flag==='chg'?'CHANGE':r.prop.flag==='ok'?((r.state||r.region)?'MATCH':'FILL'):'UNKNOWN'}</span> ${esc(r.prop.note)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="erow"><button type="button" class="qbtn" data-act="csv">Copy CSV for Data Loader</button><span class="qmsg" data-m></span></div>
+    <p class="qmsg">Review before loading. Clay returns the company HQ, which is not always where a subsidiary or regional account sits.</p>`;
+    out.querySelector('[data-act="csv"]').onclick=()=>{
+      const m=out.querySelector('[data-m]');
+      try{navigator.clipboard.writeText(csv).then(()=>{m.textContent='Copied'},()=>{m.textContent='Clipboard blocked, select the table instead'})}catch(e){m.textContent='Clipboard blocked'}
+    };
+  }
+}
+const esc=t=>String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+grid.addEventListener('click',e=>{
+  const b=e.target.closest('[data-e]');if(!b)return;
+  const d=D.find(x=>x.id===b.dataset.e),box=grid.querySelector(`[data-ebox="${d.id}"]`);
+  if(!box.hidden){box.hidden=true;return}
+  enrichUI(d,box);
+});
+(async()=>{
+  try{MCP=window.claude&&window.claude.use?await window.claude.use('mcp'):null}catch(e){MCP=null}
+  if(MCP){updStatus();startLive()}
+})();
 doms.forEach(d=>{const b=el(`<button type="button" data-d="${d}">${d}</button>`);b.onclick=()=>{cur=d;draw()};fb.append(b)});
 draw();
 </script>
