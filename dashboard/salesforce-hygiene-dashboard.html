@@ -119,10 +119,10 @@ const D=[
 {id:'opp-amount',q:{"o": "Opportunity", "f": "Id, Name, StageName, Amount, CloseDate, LastActivityDate, Type, Owner.Name", "w": "IsClosed = false AND (Amount = null OR Amount = 0)"},dom:'Pipeline',t:'Open opportunities with blank or zero amount',n:94,base:614,bl:'open opps',sev:'rev',
  why:'15% of open pipeline has no value, so it is invisible in every amount-based report.',
  act:'Make amount required past the qualification stage.'},
-{id:'opp-renew-dup',q:{tabs:[{k:'ACCOUNTS',t:"SELECT AccountId, Account.Name, Account.Customer_Status__c, COUNT(Id) c FROM Opportunity WHERE IsClosed = false AND Type = 'Renew' AND Account.Name NOT IN ('Test','Test2','Test 2') GROUP BY AccountId, Account.Name, Account.Customer_Status__c HAVING COUNT(Id) > 1 ORDER BY COUNT(Id) DESC LIMIT 200"},{k:'OPPS',t:"SELECT Account.Name, Account.Customer_Status__c, Name, StageName, Amount, CloseDate, Owner.Name\nFROM Opportunity\nWHERE IsClosed = false AND Type = 'Renew' AND Account.Name NOT IN ('Test','Test2','Test 2')\nAND AccountId IN (SELECT AccountId FROM Opportunity WHERE IsClosed = false AND Type = 'Renew' AND Account.Name NOT IN ('Test','Test2','Test 2') GROUP BY AccountId HAVING COUNT(Id) > 1)\nORDER BY AccountId, CloseDate"}]},dom:'Pipeline',t:'Accounts with more than 1 open Renew opportunity',n:1,sev:'crit',
- why:'An account should have at most one open Renew opportunity. Urban Outfitters Inc. is Customer Status "2. paid" and has 2, which breaks the rule. Accounts named Test, Test2 and Test 2 are excluded.',
- act:'Keep one Renew opp per paid account and close or merge the others. Urban Outfitters has two opps with the same close date (27 Feb 2029).',
- cols:['Account','Customer Status','Opportunity','Stage','Close date','Amount'],rows:[['Urban Outfitters Inc.','2. paid','6,000 M/ 41 months Renew','To Renew','2029-02-27','3,085,450'],['Urban Outfitters Inc.','2. paid','11,000 M/ 30 months Renew','To Renew','2029-02-27','3,372,270']]},
+{id:'opp-renew-dup',q:{tabs:[{k:'ACCOUNTS',t:"SELECT AccountId, Account.Name, Account.Customer_Status__c, COUNT(Id) c FROM Opportunity WHERE IsClosed = false AND Type = 'Renew' AND (NOT Account.Name LIKE 'test%') GROUP BY AccountId, Account.Name, Account.Customer_Status__c HAVING COUNT(Id) > 1 ORDER BY COUNT(Id) DESC LIMIT 200"},{k:'OPPS',t:"SELECT Account.Name, Account.Customer_Status__c, Name, StageName, Amount, CloseDate, CreatedDate, Owner.Name\nFROM Opportunity\nWHERE IsClosed = false AND Type = 'Renew'\nAND AccountId IN ({IDS})\nORDER BY AccountId, CloseDate"}]},dom:'Pipeline',t:'Accounts with more than 1 open Renew opportunity',n:2,sev:'crit',
+ why:'An account should have at most one open Renew opportunity. 2 paid accounts break the rule. Urban Outfitters was reviewed and accepted. Accounts whose name starts with "test" are excluded. King Jouet: an Upsell (Enterprise 500M) closed won on 28 Oct 2026 and a new Renew (500M, 300,300) was created the same day, while the previous Renew (300M, 306,000) is still open with the same close date. Impresa shows the same pattern: a new Renew created 27 Oct 2026 next to the older one. Likely cause: the renewal created after an upsell does not close the superseded Renew (not confirmed).',
+ act:'Close the superseded older Renew on each account. Then check the renewal-creation automation so it closes or updates the previous open Renew instead of adding one.',
+ cols:['Account','Opportunity','Created','Close date','Amount'],rows:[['King Jouet','300 M/ 36 months Renew 30 Nov 2028','2025-11-28','2028-11-30','306,000'],['King Jouet','500 M/ 26 months Renew 30 Nov 2028','2026-10-28','2028-11-30','300,300'],['Impresa','300 M/ 24 months Renew 28 Apr 2028','2026-04-28','2028-04-28','215,100'],['Impresa','300 M/ 18 months Renew 29 Apr 2028','2026-10-27','2028-04-29','153,000']]},
 {id:'usr-7',q:{"o": "User", "f": "Id, Name, Profile.Name, LastLoginDate, UserType", "w": "IsActive = true AND UserType = 'Standard' AND (LastLoginDate < LAST_N_DAYS:7 OR LastLoginDate = null)"},dom:'Users',t:'Active users with no login in 7 days',n:9,base:130,bl:'active standard users',sev:'rev',
  why:'4 of the 9 are integration or service users (expected). 5 are people or placeholders. 7 days is a noisy threshold, 30 days leaves 3.',
  act:'Review the 5 human rows for license reclaim. Exclude API-only profiles from this check.',
@@ -228,7 +228,10 @@ function draw(){
 }
 const d365=()=>new Date(Date.now()-365*864e5).toISOString().slice(0,10)+'T00:00:00Z';
 function tabs(d){
-  if(d.q.tabs)return d.q.tabs;
+  if(d.q.tabs){
+    const ids=d.ids&&d.ids.length?d.ids.map(i=>`'${i}'`).join(','):"'<AccountId values from the ACCOUNTS result>'";
+    return d.q.tabs.map(x=>({k:x.k,t:x.t.replace('{IDS}',ids)}));
+  }
   const w=d.q.w.replace('{D365}',d365());
   return [{k:'RECORDS',t:`SELECT ${d.q.f}\nFROM ${d.q.o}\nWHERE ${w}`},{k:'COUNT',t:`SELECT COUNT(Id) c FROM ${d.q.o} WHERE ${w}`}];
 }
@@ -280,6 +283,7 @@ function startLive(){
       if(ev.type==='data'){
         const p=unp(ev.result);if(!p)return;
         const r0=p.records&&p.records[0];
+        if(d.id==='opp-renew-dup')d.ids=(p.records||[]).map(r=>r.AccountId).filter(Boolean);
         const n=ld.m==='size'?Number(p.totalSize):Number(r0&&(r0.c!==undefined?r0.c:r0.expr0));
         if(!Number.isFinite(n))return;
         d.n=n;d.live=true;
