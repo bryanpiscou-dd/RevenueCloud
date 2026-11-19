@@ -119,6 +119,10 @@ const D=[
 {id:'opp-amount',q:{"o": "Opportunity", "f": "Id, Name, StageName, Amount, CloseDate, LastActivityDate, Type, Owner.Name", "w": "IsClosed = false AND (Amount = null OR Amount = 0)"},dom:'Pipeline',t:'Open opportunities with blank or zero amount',n:94,base:614,bl:'open opps',sev:'rev',
  why:'15% of open pipeline has no value, so it is invisible in every amount-based report.',
  act:'Make amount required past the qualification stage.'},
+{id:'opp-renew-dup',q:{tabs:[{k:'ACCOUNTS',t:"SELECT AccountId, Account.Name, Account.Customer_Status__c, COUNT(Id) c FROM Opportunity WHERE IsClosed = false AND Type = 'Renew' AND Account.Name NOT IN ('Test','Test2','Test 2') GROUP BY AccountId, Account.Name, Account.Customer_Status__c HAVING COUNT(Id) > 1 ORDER BY COUNT(Id) DESC LIMIT 200"},{k:'OPPS',t:"SELECT Account.Name, Account.Customer_Status__c, Name, StageName, Amount, CloseDate, Owner.Name\nFROM Opportunity\nWHERE IsClosed = false AND Type = 'Renew' AND Account.Name NOT IN ('Test','Test2','Test 2')\nAND AccountId IN (SELECT AccountId FROM Opportunity WHERE IsClosed = false AND Type = 'Renew' AND Account.Name NOT IN ('Test','Test2','Test 2') GROUP BY AccountId HAVING COUNT(Id) > 1)\nORDER BY AccountId, CloseDate"}]},dom:'Pipeline',t:'Accounts with more than 1 open Renew opportunity',n:1,sev:'crit',
+ why:'An account should have at most one open Renew opportunity. Urban Outfitters Inc. is Customer Status "2. paid" and has 2, which breaks the rule. Accounts named Test, Test2 and Test 2 are excluded.',
+ act:'Keep one Renew opp per paid account and close or merge the others. Urban Outfitters has two opps with the same close date (27 Feb 2029).',
+ cols:['Account','Customer Status','Opportunity','Stage','Close date','Amount'],rows:[['Urban Outfitters Inc.','2. paid','6,000 M/ 41 months Renew','To Renew','2029-02-27','3,085,450'],['Urban Outfitters Inc.','2. paid','11,000 M/ 30 months Renew','To Renew','2029-02-27','3,372,270']]},
 {id:'usr-7',q:{"o": "User", "f": "Id, Name, Profile.Name, LastLoginDate, UserType", "w": "IsActive = true AND UserType = 'Standard' AND (LastLoginDate < LAST_N_DAYS:7 OR LastLoginDate = null)"},dom:'Users',t:'Active users with no login in 7 days',n:9,base:130,bl:'active standard users',sev:'rev',
  why:'4 of the 9 are integration or service users (expected). 5 are people or placeholders. 7 days is a noisy threshold, 30 days leaves 3.',
  act:'Review the 5 human rows for license reclaim. Exclude API-only profiles from this check.',
@@ -455,7 +459,7 @@ grid.addEventListener('click',async e=>{
   say('Loading departed users and candidate owners…');
   try{
     const g=await sfq(isOwner?`SELECT OwnerId, Owner.Name n, COUNT(Id) c FROM Account WHERE Owner.IsActive = false GROUP BY OwnerId, Owner.Name`:`SELECT Assigned_AE__c, Assigned_AE__r.Name n, COUNT(Id) c FROM Account WHERE Assigned_AE__c != null AND Assigned_AE__r.IsActive = false GROUP BY Assigned_AE__c, Assigned_AE__r.Name`);
-    const u=await sfq(`SELECT Id, Name, Profile.Name FROM User WHERE IsActive = true AND UserType = 'Standard' AND (Profile.Name IN ('AE','AM','Sales Manager','AM Manager') OR Name = 'No Owner') ORDER BY Name`);
+    const u=await sfq(`SELECT Id, Name, Profile.Name FROM User WHERE IsActive = true AND UserType = 'Standard' ORDER BY Name`);
     const gone=(g.records||[]).map(r=>({id:r[F],name:r.n||r.Name||r.id,c:Number(r.c!==undefined?r.c:r.expr0)})).sort((x,y)=>y.c-x.c);
     const ur=u.records||[];const noOwner=ur.find(r=>r.Name==='No Owner');
     const opts=(noOwner?`<option value="${esc(noOwner.Id)}">No Owner (placeholder user)</option>`:'')+ur.filter(r=>r!==noOwner).map(r=>`<option value="${esc(r.Id)}">${esc(r.Name)} (${esc(r.Profile&&r.Profile.Name)})</option>`).join('');
