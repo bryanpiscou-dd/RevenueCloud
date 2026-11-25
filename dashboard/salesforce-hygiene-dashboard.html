@@ -515,18 +515,34 @@ grid.addEventListener('click',async e=>{
   if(!MCP){say('Open this dashboard with the Salesforce connector to build the message.');return}
   say('Loading opportunities and managers…');
   try{
-    const p=await sfq(`SELECT Id, Name, StageName, Amount, CloseDate, RecordType.Name, Owner.Name, Owner.Manager.Name, Owner.Manager.Email FROM Opportunity WHERE ${d.q.w} ORDER BY CloseDate`);
+    const p=await sfq(`SELECT Id, Name, StageName, Amount, CloseDate, RecordType.Name, Owner.Name, Owner.Manager.Name, Owner.Manager.Email, Account.Region__c, Account.New_US_Territory__c FROM Opportunity WHERE ${d.q.w} ORDER BY CloseDate`);
+    const BDR={EMEA:{name:'Paul Aguadisch',email:'paul.aguadisch@datadome.co'},US:{name:'Jake Candelaria',email:'jake.candelaria@datadome.co'}};
+    const US_TERR=['Midwest','Northeast','Northern California','Pacific','New York','Southeast'];
+    const regionOf=r=>{
+      const a=r.Account||{},rg=a.Region__c,t=a.New_US_Territory__c;
+      if(['Europe','Middle East','Africa'].includes(rg))return 'EMEA';
+      if(rg==='North America')return 'US';
+      if(!rg&&t==='EMEA')return 'EMEA';
+      if(!rg&&US_TERR.includes(t))return 'US';
+      return '';
+    };
     const G={};
     (p.records||[]).forEach(r=>{
-      const m=r.Owner&&r.Owner.Manager;const k=m&&m.Email?m.Email:'';
-      (G[k]=G[k]||{name:m?m.Name:'No manager set',email:k,opps:[]}).opps.push({id:r.Id,name:r.Name,stage:r.StageName,amt:r.Amount,close:r.CloseDate,owner:(r.Owner&&r.Owner.Name)||'Unknown'});
+      const m=r.Owner&&r.Owner.Manager;
+      const isMB=r.RecordType&&r.RecordType.Name==='New Business'&&r.StageName==='Meeting Booked';
+      const rg=isMB?regionOf(r):'';
+      let k,name,email,kind='';
+      let label;
+      if(rg){k='bdr:'+rg;name=BDR[rg].name;label=name+' (BDR Manager, '+rg+')';email=BDR[rg].email;kind='bdr'}
+      else{k=m&&m.Email?m.Email:'';name=m?m.Name:'No manager set';label=name;email=k}
+      (G[k]=G[k]||{name,label,email,kind,opps:[]}).opps.push({id:r.Id,name:r.Name,stage:r.StageName,amt:r.Amount,close:r.CloseDate,owner:(r.Owner&&r.Owner.Name)||'Unknown',noRegion:isMB&&!rg});
     });
     const keys=Object.keys(G).sort((a,b)=>G[b].opps.length-G[a].opps.length);
     if(!keys.length){say('No opportunities past their close date.');return}
     const biz=n=>{const x=new Date();let k=0;while(k<n){x.setDate(x.getDate()+1);if(x.getDay()%6)k++}return x.toISOString().slice(0,10)};
     box.innerHTML=`<b style="font-size:13px">Slack message to a manager</b>
-    <p class="qmsg" style="font-size:12px">Pick the manager, untick any opp that should not be in the message, edit the text if you want. The Slack button saves a <b>draft</b> in your Slack DM with the manager. It is never sent automatically.</p>
-    <div class="erow"><label class="qmsg" for="sm-${ID}">Manager</label><select id="sm-${ID}">${keys.map(k=>`<option value="${esc(k)}">${esc(G[k].name)} (${G[k].opps.length} opps)</option>`).join('')}</select>
+    <p class="qmsg" style="font-size:12px">New Business opps still at Meeting Booked go to the BDR Manager of their region (account region EMEA: Paul Aguadisch, US: Jake Candelaria); everything else goes to the owner's manager. Pick the recipient, untick any opp that should not be in the message, edit the text if you want. The Slack button saves a <b>draft</b> in your Slack DM with the manager. It is never sent automatically.</p>
+    <div class="erow"><label class="qmsg" for="sm-${ID}">Manager</label><select id="sm-${ID}">${keys.map(k=>`<option value="${esc(k)}">${esc(G[k].label)} (${G[k].opps.length} opps)</option>`).join('')}</select>
     <label class="qmsg" for="sd-${ID}">Clean by</label><input type="date" id="sd-${ID}" value="${biz(5)}" class="num-in" style="width:140px"></div>
     <div data-ol></div>
     <textarea class="csvbox" id="st-${ID}" style="min-height:220px" aria-label="Slack message"></textarea>
@@ -536,7 +552,7 @@ grid.addEventListener('click',async e=>{
     const age=c=>Math.max(0,Math.floor((Date.now()-new Date(c+'T00:00:00').getTime())/864e5));
     function drawList(){
       const g=cur();
-      ol.innerHTML=`<div class="tbl"><table><thead><tr><th></th><th>Opportunity</th><th>Owner</th><th>Stage</th><th>Close</th></tr></thead><tbody>${g.opps.map((o,i)=>`<tr><td><input type="checkbox" data-i="${i}" checked aria-label="Include ${esc(o.name)}"></td><td>${esc(o.name)}</td><td>${esc(o.owner)}</td><td>${esc(o.stage)}</td><td>${esc(o.close)} (${age(o.close)}d)</td></tr>`).join('')}</tbody></table></div>`;
+      ol.innerHTML=`<div class="tbl"><table><thead><tr><th></th><th>Opportunity</th><th>Owner</th><th>Stage</th><th>Close</th></tr></thead><tbody>${g.opps.map((o,i)=>`<tr><td><input type="checkbox" data-i="${i}" checked aria-label="Include ${esc(o.name)}"></td><td>${esc(o.name)}</td><td>${esc(o.owner)}</td><td>${esc(o.stage)}${o.noRegion?' (account region unknown, not routed to a BDR Manager)':''}</td><td>${esc(o.close)} (${age(o.close)}d)</td></tr>`).join('')}</tbody></table></div>`;
       ol.querySelectorAll('input[type=checkbox]').forEach(c=>c.onchange=compose);
       compose();
     }
@@ -545,7 +561,9 @@ grid.addEventListener('click',async e=>{
       const first=(g.name.split(' ')[0])||'there',n=on.length;
       const by={};on.forEach(o=>{(by[o.owner]=by[o.owner]||[]).push(o)});
       const due=dd.value?new Date(dd.value+'T00:00:00').toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}):'';
-      const L=[`Hi ${first},`,'',`Quick pipeline hygiene ask for your team: ${n} open opportunit${n===1?'y':'ies'} (New Business, Renew, Upsell) ${n===1?'has':'have'} a close date in the past. This distorts our forecast and slippage reporting.`,'','For each one, please ask the owner to either push the close date to a realistic date, or close it (won or lost) if it is dead.',''];
+      const L=g.kind==='bdr'
+        ?[`Hi ${first},`,'',`Quick pipeline hygiene ask for the BDR team: ${n} New Business opportunit${n===1?'y is':'ies are'} still at Meeting Booked with a close date in the past. This distorts our forecast and slippage reporting.`,'','For each one, please have the team either move it forward if the meeting took place, push the close date to a realistic date, or close it as lost if it is dead.','']
+        :[`Hi ${first},`,'',`Quick pipeline hygiene ask for your team: ${n} open opportunit${n===1?'y':'ies'} (New Business, Renew, Upsell) ${n===1?'has':'have'} a close date in the past. This distorts our forecast and slippage reporting.`,'','For each one, please ask the owner to either push the close date to a realistic date, or close it (won or lost) if it is dead.',''];
       Object.keys(by).forEach(o=>{L.push(`**${o}**`);by[o].forEach(x=>L.push(`• [${x.name}](${OPPURL}${x.id}/view) · ${x.stage}${x.amt?' · '+Number(x.amt).toLocaleString('en-US'):''} · close date ${x.close} (${age(x.close)} days overdue)`));L.push('')});
       L.push(`Could your team have this cleaned by ${due}? Thanks!`);
       ta.value=n?L.join('\n'):'';
