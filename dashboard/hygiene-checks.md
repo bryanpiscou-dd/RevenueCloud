@@ -6,7 +6,7 @@ SOQL behind each tile of `salesforce-hygiene-dashboard.html`. Re-run to refresh.
 |---|---|---|
 | Accounts, inactive owner | `SELECT COUNT(Id) FROM Account WHERE Owner.IsActive = false` | Accounts, filter Owner: Active = False |
 | Open opps, inactive owner | `... FROM Opportunity WHERE IsClosed = false AND Owner.IsActive = false AND Type != 'Partner Opportunity'` | Opportunities |
-| Open opps past close date | `... WHERE IsClosed = false AND CloseDate < TODAY` | Opportunities |
+| Open opps past close date (New Business, Renew, Upsell only) | `... WHERE IsClosed = false AND CloseDate < TODAY AND RecordType.Name IN ('New Business','Renew','Upsell')` | Opportunities |
 | Open opps, no activity 30d | `... WHERE IsClosed = false AND LastActivityDate < LAST_N_DAYS:30` | Opportunities (note: opps with no activity ever have null, add `OR LastActivityDate = null`) |
 | Open opps, no amount | `... WHERE IsClosed = false AND (Amount = null OR Amount = 0)` | Opportunities |
 | Users, no login 7d | `... FROM User WHERE IsActive = true AND UserType = 'Standard' AND (LastLoginDate < LAST_N_DAYS:7 OR LastLoginDate = null)` | Users |
