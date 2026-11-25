@@ -516,13 +516,18 @@ grid.addEventListener('click',async e=>{
   say('Loading opportunities and managers…');
   try{
     const p=await sfq(`SELECT Id, Name, StageName, Amount, CloseDate, RecordType.Name, Owner.Name, Owner.Manager.Name, Owner.Manager.Email, Account.Region__c, Account.New_US_Territory__c FROM Opportunity WHERE ${d.q.w} ORDER BY CloseDate`);
-    const BDR={EMEA:{name:'Paul Aguadisch',email:'paul.aguadisch@datadome.co'},US:{name:'Jake Candelaria',email:'jake.candelaria@datadome.co'}};
+    const PAUL={name:'Paul Aguadisch',email:'paul.aguadisch@datadome.co',label:'Paul Aguadisch (BDR Manager, EMEA + APAC)'};
+    const JAKE={name:'Jake Candelaria',email:'jake.candelaria@datadome.co',label:'Jake Candelaria (BDR Manager, US + LatAm)'};
+    const BDR={EMEA:PAUL,APAC:PAUL,US:JAKE,LATAM:JAKE};
     const US_TERR=['Midwest','Northeast','Northern California','Pacific','New York','Southeast'];
     const regionOf=r=>{
       const a=r.Account||{},rg=a.Region__c,t=a.New_US_Territory__c;
       if(['Europe','Middle East','Africa'].includes(rg))return 'EMEA';
+      if(['Asia Pacific','Oceania'].includes(rg))return 'APAC';
+      if(rg==='Latin America')return 'LATAM';
       if(rg==='North America')return 'US';
       if(!rg&&t==='EMEA')return 'EMEA';
+      if(!rg&&t==='Latin America')return 'LATAM';
       if(!rg&&US_TERR.includes(t))return 'US';
       return '';
     };
@@ -533,7 +538,7 @@ grid.addEventListener('click',async e=>{
       const rg=isMB?regionOf(r):'';
       let k,name,email,kind='';
       let label;
-      if(rg){k='bdr:'+rg;name=BDR[rg].name;label=name+' (BDR Manager, '+rg+')';email=BDR[rg].email;kind='bdr'}
+      if(rg){const bm=BDR[rg];k='bdr:'+bm.email;name=bm.name;label=bm.label;email=bm.email;kind='bdr'}
       else{k=m&&m.Email?m.Email:'';name=m?m.Name:'No manager set';label=name;email=k}
       (G[k]=G[k]||{name,label,email,kind,opps:[]}).opps.push({id:r.Id,name:r.Name,stage:r.StageName,amt:r.Amount,close:r.CloseDate,owner:(r.Owner&&r.Owner.Name)||'Unknown',noRegion:isMB&&!rg});
     });
@@ -541,7 +546,7 @@ grid.addEventListener('click',async e=>{
     if(!keys.length){say('No opportunities past their close date.');return}
     const biz=n=>{const x=new Date();let k=0;while(k<n){x.setDate(x.getDate()+1);if(x.getDay()%6)k++}return x.toISOString().slice(0,10)};
     box.innerHTML=`<b style="font-size:13px">Slack message to a manager</b>
-    <p class="qmsg" style="font-size:12px">New Business opps still at Meeting Booked go to the BDR Manager of their region (account region EMEA: Paul Aguadisch, US: Jake Candelaria); everything else goes to the owner's manager. Pick the recipient, untick any opp that should not be in the message, edit the text if you want. The Slack button saves a <b>draft</b> in your Slack DM with the manager. It is never sent automatically.</p>
+    <p class="qmsg" style="font-size:12px">New Business opps still at Meeting Booked go to the BDR Manager of their account region (EMEA and APAC: Paul Aguadisch, US and LatAm: Jake Candelaria); everything else goes to the owner's manager. Pick the recipient, untick any opp that should not be in the message, edit the text if you want. The Slack button saves a <b>draft</b> in your Slack DM with the manager. It is never sent automatically.</p>
     <div class="erow"><label class="qmsg" for="sm-${ID}">Manager</label><select id="sm-${ID}">${keys.map(k=>`<option value="${esc(k)}">${esc(G[k].label)} (${G[k].opps.length} opps)</option>`).join('')}</select>
     <label class="qmsg" for="sd-${ID}">Clean by</label><input type="date" id="sd-${ID}" value="${biz(5)}" class="num-in" style="width:140px"></div>
     <div data-ol></div>
