@@ -110,7 +110,7 @@ const D=[
  cols:['Assigned AE (inactive)','Accounts'],rows:[['Marylin Albrecht','7,638'],['Skyler Mang','857'],['Zach Vick','603']]},
 {id:'opp-inactive',q:{"o": "Opportunity", "f": "Id, Name, StageName, Amount, CloseDate, LastActivityDate, Type, Owner.Name", "w": "IsClosed = false AND Owner.IsActive = false AND Type != 'Partner Opportunity'"},dom:'Pipeline',t:'Open opportunities owned by an inactive user',n:0,base:614,bl:'open opps',sev:'ok',
  why:'Clean once partner opportunities are excluded. The 8 earlier hits were all Type = Partner Opportunity.',act:'No action.'},
-{id:'opp-past',q:{"o": "Opportunity", "f": "Id, Name, RecordType.Name, StageName, Amount, CloseDate, LastActivityDate, Owner.Name", "w": "IsClosed = false AND CloseDate < TODAY AND RecordType.Name IN ('New Business','Renew','Upsell')"},dom:'Pipeline',t:'Open opportunities past close date',n:17,base:556,bl:'open New Business, Renew and Upsell opps',sev:'crit',
+{id:'opp-past',slack:true,q:{"o": "Opportunity", "f": "Id, Name, RecordType.Name, StageName, Amount, CloseDate, LastActivityDate, Owner.Name", "w": "IsClosed = false AND CloseDate < TODAY AND RecordType.Name IN ('New Business','Renew','Upsell')"},dom:'Pipeline',t:'Open opportunities past close date',n:17,base:556,bl:'open New Business, Renew and Upsell opps',sev:'crit',
  why:'Scope is record types New Business, Renew and Upsell only. 17 of 556 open opps (3.1%) have a close date in the past: Upsell 11, New Business 4, Renew 2. Partner Opportunity (18), Monthly to Commit (13) and one opp with no record type are excluded. This distorts forecast, coverage and slippage reporting.',
  act:'Weekly push-or-close review per manager. Consider a validation rule blocking a past close date on open stages.'},
 {id:'opp-stale',q:{"o": "Opportunity", "f": "Id, Name, StageName, Amount, CloseDate, LastActivityDate, Type, Owner.Name", "w": "IsClosed = false AND LastActivityDate < LAST_N_DAYS:30"},dom:'Pipeline',t:'Open opportunities with no activity in 30 days',n:166,base:614,bl:'open opps',sev:'rev',
@@ -215,7 +215,7 @@ function card(d){
   const drill=d.rows?`<details><summary>SHOW RECORDS</summary><div class="tbl"><table><thead><tr>${d.cols.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${d.rows.map(r=>`<tr>${r.map(x=>`<td>${x}</td>`).join('')}</tr>`).join('')}</tbody></table></div></details>`:'';
   return el(`<article class="card" data-id="${d.id}"><div class="top"><div><div class="mono dom">${d.dom}</div><h3>${d.t}</h3></div><span class="pill ${d.sev}">${sevLabel[d.sev]}</span></div>
   <div class="num">${numHTML(d)}</div><div class="barw">${barHTML(d)}</div>
-  <p>${d.why}</p><p class="act"><b>Action:</b> ${d.act}</p>${drill}<div class="btns">${d.q?`<button type="button" class="qbtn" data-q="${d.id}">Generate SOQL</button>`:''}${d.enr?`<button type="button" class="qbtn ebtn" data-e="${d.id}">Enrich with Clay</button>`:''}${d.own?`<button type="button" class="qbtn ebtn" data-o="${d.id}">Reassign owner</button>`:''}${d.fix?`<button type="button" class="qbtn ebtn" data-fix="${d.id}">Build fixed CSV</button>`:''}</div><div class="qbox" data-box="${d.id}" hidden></div><div class="ebox" data-ebox="${d.id}" hidden></div></article>`);
+  <p>${d.why}</p><p class="act"><b>Action:</b> ${d.act}</p>${drill}<div class="btns">${d.q?`<button type="button" class="qbtn" data-q="${d.id}">Generate SOQL</button>`:''}${d.enr?`<button type="button" class="qbtn ebtn" data-e="${d.id}">Enrich with Clay</button>`:''}${d.slack?`<button type="button" class="qbtn ebtn" data-sl="${d.id}">Slack message to manager</button>`:''}${d.own?`<button type="button" class="qbtn ebtn" data-o="${d.id}">Reassign owner</button>`:''}${d.fix?`<button type="button" class="qbtn ebtn" data-fix="${d.id}">Build fixed CSV</button>`:''}</div><div class="qbox" data-box="${d.id}" hidden></div><div class="ebox" data-ebox="${d.id}" hidden></div></article>`);
 }
 function refreshCard(d){
   const a=grid.querySelector(`[data-id="${d.id}"]`);if(!a)return;
@@ -500,6 +500,85 @@ grid.addEventListener('click',async e=>{
         const fb=()=>{ta.hidden=false;ta.value=csv;ta.focus();ta.select();cm.textContent='Clipboard blocked: the text is selected below, press Ctrl+C'};
         ops.querySelector('[data-act="copy"]').onclick=()=>{try{navigator.clipboard.writeText(csv).then(()=>{cm.textContent=`Copied ${n.toLocaleString('en-US')} rows`},fb)}catch(err){fb()}};
       }catch(err){m.textContent='Salesforce query failed: '+(err.code||'')+' '+(err.message||'')}
+    };
+  }catch(err){say('Salesforce query failed: '+(err.code||'')+' '+(err.message||''))}
+});
+/* ---------- Slack message to the manager (draft only, never sent) ---------- */
+const OPPURL='https://datadome.lightning.force.com/lightning/r/Opportunity/';
+const SLK='Slack';
+grid.addEventListener('click',async e=>{
+  const b=e.target.closest('[data-sl]');if(!b)return;
+  const d=D.find(x=>x.id===b.dataset.sl),box=grid.querySelector(`[data-ebox="${d.id}"]`),ID=d.id;
+  if(!box.hidden){box.hidden=true;return}
+  box.hidden=false;
+  const say=t=>{box.innerHTML=`<p class="qmsg">${t}</p>`};
+  if(!MCP){say('Open this dashboard with the Salesforce connector to build the message.');return}
+  say('Loading opportunities and managers…');
+  try{
+    const p=await sfq(`SELECT Id, Name, StageName, Amount, CloseDate, RecordType.Name, Owner.Name, Owner.Manager.Name, Owner.Manager.Email FROM Opportunity WHERE ${d.q.w} ORDER BY CloseDate`);
+    const G={};
+    (p.records||[]).forEach(r=>{
+      const m=r.Owner&&r.Owner.Manager;const k=m&&m.Email?m.Email:'';
+      (G[k]=G[k]||{name:m?m.Name:'No manager set',email:k,opps:[]}).opps.push({id:r.Id,name:r.Name,stage:r.StageName,amt:r.Amount,close:r.CloseDate,owner:(r.Owner&&r.Owner.Name)||'Unknown'});
+    });
+    const keys=Object.keys(G).sort((a,b)=>G[b].opps.length-G[a].opps.length);
+    if(!keys.length){say('No opportunities past their close date.');return}
+    const biz=n=>{const x=new Date();let k=0;while(k<n){x.setDate(x.getDate()+1);if(x.getDay()%6)k++}return x.toISOString().slice(0,10)};
+    box.innerHTML=`<b style="font-size:13px">Slack message to a manager</b>
+    <p class="qmsg" style="font-size:12px">Pick the manager, untick any opp that should not be in the message, edit the text if you want. The Slack button saves a <b>draft</b> in your Slack DM with the manager. It is never sent automatically.</p>
+    <div class="erow"><label class="qmsg" for="sm-${ID}">Manager</label><select id="sm-${ID}">${keys.map(k=>`<option value="${esc(k)}">${esc(G[k].name)} (${G[k].opps.length} opps)</option>`).join('')}</select>
+    <label class="qmsg" for="sd-${ID}">Clean by</label><input type="date" id="sd-${ID}" value="${biz(5)}" class="num-in" style="width:140px"></div>
+    <div data-ol></div>
+    <textarea class="csvbox" id="st-${ID}" style="min-height:220px" aria-label="Slack message"></textarea>
+    <div class="erow"><button type="button" class="qbtn" data-act="slk">Create Slack draft</button><button type="button" class="qbtn ebtn" data-act="cp">Copy message</button><span class="qmsg" data-sm></span></div>`;
+    const sm=box.querySelector('[data-sm]'),ol=box.querySelector('[data-ol]'),ta=document.getElementById(`st-${ID}`),sel=document.getElementById(`sm-${ID}`),dd=document.getElementById(`sd-${ID}`);
+    const cur=()=>G[sel.value];
+    const age=c=>Math.max(0,Math.floor((Date.now()-new Date(c+'T00:00:00').getTime())/864e5));
+    function drawList(){
+      const g=cur();
+      ol.innerHTML=`<div class="tbl"><table><thead><tr><th></th><th>Opportunity</th><th>Owner</th><th>Stage</th><th>Close</th></tr></thead><tbody>${g.opps.map((o,i)=>`<tr><td><input type="checkbox" data-i="${i}" checked aria-label="Include ${esc(o.name)}"></td><td>${esc(o.name)}</td><td>${esc(o.owner)}</td><td>${esc(o.stage)}</td><td>${esc(o.close)} (${age(o.close)}d)</td></tr>`).join('')}</tbody></table></div>`;
+      ol.querySelectorAll('input[type=checkbox]').forEach(c=>c.onchange=compose);
+      compose();
+    }
+    function compose(){
+      const g=cur(),on=[...ol.querySelectorAll('input[type=checkbox]')].filter(c=>c.checked).map(c=>g.opps[+c.dataset.i]);
+      const first=(g.name.split(' ')[0])||'there',n=on.length;
+      const by={};on.forEach(o=>{(by[o.owner]=by[o.owner]||[]).push(o)});
+      const due=dd.value?new Date(dd.value+'T00:00:00').toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}):'';
+      const L=[`Hi ${first},`,'',`Quick pipeline hygiene ask for your team: ${n} open opportunit${n===1?'y':'ies'} (New Business, Renew, Upsell) ${n===1?'has':'have'} a close date in the past. This distorts our forecast and slippage reporting.`,'','For each one, please ask the owner to either push the close date to a realistic date, or close it (won or lost) if it is dead.',''];
+      Object.keys(by).forEach(o=>{L.push(`**${o}**`);by[o].forEach(x=>L.push(`• [${x.name}](${OPPURL}${x.id}/view) · ${x.stage}${x.amt?' · '+Number(x.amt).toLocaleString('en-US'):''} · close date ${x.close} (${age(x.close)} days overdue)`));L.push('')});
+      L.push(`Could your team have this cleaned by ${due}? Thanks!`);
+      ta.value=n?L.join('\n'):'';
+      sm.textContent=n?'':'Tick at least one opportunity';
+    }
+    sel.onchange=drawList;dd.onchange=compose;
+    drawList();
+    const plain=t=>t.replace(/\*\*(.+?)\*\*/g,'$1').replace(/\[(.+?)\]\((https?:[^)]+)\)/g,'$1 — $2');
+    box.querySelector('[data-act="cp"]').onclick=()=>{
+      const t=plain(ta.value);
+      const fb=()=>{ta.focus();ta.select();sm.textContent='Clipboard blocked: the text is selected, press Ctrl+C'};
+      try{navigator.clipboard.writeText(t).then(()=>{sm.textContent='Copied (links as plain URLs)'},fb)}catch(err){fb()}
+    };
+    box.querySelector('[data-act="slk"]').onclick=async()=>{
+      const g=cur();
+      if(!ta.value.trim()){sm.textContent='Nothing to send';return}
+      if(!g.email){sm.textContent='These owners have no manager in Salesforce. Use Copy message.';return}
+      sm.textContent='Finding the manager in Slack…';
+      try{
+        const nm=g.name.split(/\s+/);
+        const s=unp(await MCP.callTool(SLK,'slack_search_users',{keywords:[nm[0],nm[nm.length-1]],natural_language_query:g.name,limit:10,response_format:'concise'},{cache:false}));
+        const txt=typeof s==='string'?s:((s&&s.results)||'');
+        let uid='';
+        String(txt).split('\n').forEach(l=>{if(!uid&&l.toLowerCase().includes(g.email.toLowerCase())){const m=l.match(/\b(U[A-Z0-9]{8,})\b/);if(m)uid=m[1]}});
+        if(!uid){sm.textContent=`Could not find ${g.name} in Slack. Use Copy message.`;return}
+        sm.textContent='Creating the draft…';
+        const r=unp(await MCP.callTool(SLK,'slack_send_message_draft',{channel_id:uid,message:ta.value},{cache:false}));
+        const link=r&&r.channel_link;
+        sm.innerHTML=link?`Draft saved in your Slack DM with ${esc(g.name)}, not sent. <a href="${esc(link)}" target="_blank" rel="noopener">Open in Slack</a>`:`Draft saved in your Slack DM with ${esc(g.name)}, not sent.`;
+      }catch(err){
+        const m=String(err.message||'');
+        sm.textContent=/attached_draft_exists/.test(m)?`You already have a draft in your DM with ${g.name}. Edit or delete it in Slack, then try again.`:'Slack failed: '+(err.code||'')+' '+m.slice(0,160);
+      }
     };
   }catch(err){say('Salesforce query failed: '+(err.code||'')+' '+(err.message||''))}
 });
